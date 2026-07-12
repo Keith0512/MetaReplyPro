@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>META AutoReply - 控制面板</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <h1>🤖 META AutoReply - 控制面板</h1>
+          <p class="subtitle">設定完成後會自動同步至您的 Chrome 瀏覽器，並套用於 Meta 後台。</p>
+        </div>
+        <div class="header-actions">
+          <button id="export-btn" class="secondary-btn">匯出設定</button>
+          <button id="import-btn" class="secondary-btn">匯入設定</button>
+          <input type="file" id="import-file" accept=".json" style="display:none;">
+        </div>
+      </div>
+    </header>
+    
+    <main>
+      <div class="tabs">
+        <button class="tab-btn active" data-target="tab-general">一般設定</button>
+        <button class="tab-btn" data-target="tab-bindings">綁定管理</button>
+      </div>
+
+      <div id="tab-general" class="tab-pane active">
+        <!-- 商品管理 -->
+        <section class="card">
+          <h2>📦 商品管理</h2>
+          <p>設定您要在私訊中發送的商品連結</p>
+          <div class="input-group">
+            <input type="text" id="product-name" placeholder="商品名稱 (例如：地堡充氣帳篷)">
+            <input type="text" id="product-link" placeholder="商品連結 (https://...)">
+            <button id="add-product-btn">新增</button>
+          </div>
+          <ul id="product-list" class="list"></ul>
+        </section>
+
+        <!-- 回覆內容設定 -->
+        <section class="card">
+          <h2>💬 回覆內容設定 (防封鎖機制)</h2>
+          <p>設定多組不同的回覆內容，系統會隨機挑選，避免被 Meta 判定為機器人</p>
+          
+          <div class="sub-section">
+            <h3>🟢 公開留言回覆範本 (請客戶看私訊)</h3>
+            <div class="input-group">
+              <input type="text" id="public-reply-input" placeholder="例如：已私訊，請查看收件匣！">
+              <button id="add-public-reply-btn">新增</button>
+            </div>
+            <ul id="public-reply-list" class="list"></ul>
+          </div>
+          
+          <div class="sub-section">
+            <h3>🔵 私訊開頭範本 (系統會自動在後方加上商品連結)</h3>
+            <div class="input-group">
+              <input type="text" id="dm-prefix-input" placeholder="例如：您好！這是您詢問的商品連結：">
+              <button id="add-dm-prefix-btn">新增</button>
+            </div>
+            <ul id="dm-prefix-list" class="list"></ul>
+          </div>
+
+          <div class="sub-section">
+            <h3>🟣 私訊結尾範本 (系統會自動放在商品連結之後)</h3>
+            <div class="input-group">
+              <textarea id="dm-suffix-input" placeholder="例如：如果有任何問題歡迎隨時詢問喔！&#10;我們的官方客服為 @hikertribe" rows="3"></textarea>
+              <button id="add-dm-suffix-btn">新增</button>
+            </div>
+            <ul id="dm-suffix-list" class="list"></ul>
+          </div>
+        </section>
+
+        <!-- 冷卻時間設定 -->
+        <section class="card">
+          <h2>⏳ 冷卻時間設定</h2>
+          <p>設定每次回覆之間的隨機延遲時間，模擬真人操作</p>
+          
+          <h3 style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">Facebook 延遲時間</h3>
+          <div class="delay-group">
+            <div>
+              <label>最小延遲 (秒)</label>
+              <input type="number" id="fb-min-delay" min="1">
+            </div>
+            <div>
+              <label>最大延遲 (秒)</label>
+              <input type="number" id="fb-max-delay" min="1">
+            </div>
+          </div>
+          <div class="warning">
+            ⚠️ 建議設定在 15 ~ 60 秒之間。
+          </div>
+
+          <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">Instagram 延遲時間</h3>
+          <div class="delay-group">
+            <div>
+              <label>最小延遲 (秒)</label>
+              <input type="number" id="ig-min-delay" min="1">
+            </div>
+            <div>
+              <label>最大延遲 (秒)</label>
+              <input type="number" id="ig-max-delay" min="1">
+            </div>
+          </div>
+          <div class="warning">
+            ⚠️ 建議 IG 等候時間 30 秒以上。如果回覆速度過快或頻率過高，可能會觸發防垃圾訊息機制，導致帳號被暫時限制回覆功能。
+          </div>
+
+          <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">IG 私訊確認設定</h3>
+          <div class="delay-group">
+            <div>
+              <label>確認等待時間 (秒)</label>
+              <input type="number" id="ig-dm-wait-time" min="1" value="10">
+            </div>
+            <div>
+              <label>最高重試次數</label>
+              <input type="number" id="ig-dm-retries" min="0" value="3">
+            </div>
+          </div>
+          <div class="warning">
+            ⚠️ 若私訊送出後畫面未出現內容，將會於等待時間後重試送出。
+          </div>
+        </section>
+      </div>
+
+      <div id="tab-bindings" class="tab-pane">
+        <!-- 綁定管理 -->
+        <section class="card">
+          <h2>🔗 貼文綁定管理</h2>
+          <p>管理貼文與商品的綁定關係，或匯出/匯入綁定紀錄 (CSV 格式) 以備份或轉移</p>
+          <div class="action-buttons" style="margin-bottom: 20px;">
+            <button id="export-binding-csv-btn" class="secondary-btn">匯出綁定 (CSV)</button>
+            <button id="import-binding-csv-btn" class="secondary-btn">匯入綁定 (CSV)</button>
+            <input type="file" id="import-binding-csv-file" accept=".csv" style="display:none;">
+          </div>
+          
+          <ul id="binding-list" class="list"></ul>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>
