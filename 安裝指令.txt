@@ -1,1 +1,0 @@
-irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/install.ps1 | iex
