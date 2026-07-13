@@ -5,6 +5,7 @@
 param(
   [string]$InstallDir = "$env:LOCALAPPDATA\MetaReplyPro",
   [string]$ZipUrl = 'https://github.com/Keith0512/MetaReplyPro/archive/refs/heads/main.zip',
+  [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
   [switch]$SkipScheduledTask
 )
 
@@ -33,6 +34,16 @@ try {
   Copy-Item (Join-Path $repoRoot.FullName 'chrome-extension') $extensionDir -Recurse
   Copy-Item (Join-Path $repoRoot.FullName 'updater\update.ps1') (Join-Path $InstallDir 'update.ps1') -Force
 
+  # 建立桌面「MetaReplyPro 更新」捷徑：同事點兩下即可手動更新（互動模式會顯示結果）
+  $shortcutPath = Join-Path $DesktopDir 'MetaReplyPro 更新.lnk'
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $shortcut.TargetPath = 'powershell.exe'
+  $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDir\update.ps1`" -Interactive"
+  $shortcut.WorkingDirectory = $InstallDir
+  $shortcut.IconLocation = 'powershell.exe,0'
+  $shortcut.Save()
+
   # 建立排程工作：登入時＋每天 12:00 檢查更新
   if (-not $SkipScheduledTask) {
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -50,6 +61,8 @@ try {
   Write-Host '  1. 開啟 Chrome，網址列輸入 chrome://extensions'
   Write-Host '  2. 開啟右上角的「開發人員模式」'
   Write-Host "  3. 點「載入未封裝項目」，選擇資料夾：$extensionDir"
+  Write-Host ''
+  Write-Host '之後要更新時，點兩下桌面的「MetaReplyPro 更新」捷徑即可。'
   exit 0
 } catch {
   Write-Host "安裝失敗：$($_.Exception.Message)" -ForegroundColor Red

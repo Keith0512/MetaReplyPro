@@ -23,22 +23,28 @@ View your app in AI Studio: https://ai.studio/apps/a7bce6a4-5304-40f9-8e0d-f45e1
 
 ### 首次安裝（Windows）
 
+> 安裝的當下 repo 必須處於「公開」狀態（請先聯絡管理員開放）。
+
 開啟 PowerShell，貼上執行：
 
 ```powershell
-irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/setup.ps1 | iex
+irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/install.ps1 | iex
 ```
 
 完成後依畫面指示到 `chrome://extensions` 開啟「開發人員模式」，
 用「載入未封裝項目」選擇 `%LOCALAPPDATA%\MetaReplyPro\chrome-extension`（只有第一次需要）。
 
-### 自動更新機制
+### 更新機制
 
-- 安裝時會建立 Windows 排程工作「MetaReplyPro Update」：登入時與每天 12:00 檢查 GitHub 上的新版本，有新版才下載覆蓋。
-- 擴充功能每 5 分鐘比對磁碟上的版本，發現已更新就自動重新載入，使用者不需任何操作。
-- 更新紀錄寫在 `%LOCALAPPDATA%\MetaReplyPro\update.log`；上一版備份在 `chrome-extension.backup`。
+- Repo 平常保持私有，開發者發佈新版時暫時開放。
+- **手動更新（主要方式）**：點兩下桌面的「MetaReplyPro 更新」捷徑，會顯示檢查與更新結果。
+- 設定頁的「🔄 版本與更新」卡片可按「檢查更新」確認目前是否有新版（僅偵測提示，實際更新請點桌面捷徑）。
+- 排程備援：Windows 排程工作「MetaReplyPro Update」在登入時與每天 12:00 自動檢查；repo 未開放時會安靜跳過。
+- 更新完成後擴充功能會在 5 分鐘內自動重新載入。更新紀錄在 `%LOCALAPPDATA%\MetaReplyPro\update.log`；上一版備份在 `chrome-extension.backup`。
 
 ### 發佈新版（開發者）
 
-1. 修改程式後，把 `chrome-extension/manifest.json` 的 `version` 加一號（例如 `1.1.0` → `1.1.1`）。
-2. push 到 `main`。main 分支即正式發佈通道，所有使用者會在下次排程時自動更新。
+1. 修改程式後，把 `chrome-extension/manifest.json` 的 `version` 加一號（例如 `1.2.0` → `1.2.1`），push 到 `main`。
+2. 到 GitHub 把 repo 改為 **Public**（Settings → Danger Zone → Change visibility）。
+3. 通知同事點桌面的「MetaReplyPro 更新」捷徑（沒點的人也會在登入或中午的排程自動補更新）。
+4. 確認大家都更新完後，把 repo 改回 **Private**。

@@ -69,6 +69,16 @@ main 分支即正式發佈通道：push 到 main 等於發佈給所有使用者�
 2. push 到 `main`。
 3. 使用者電腦於下次排程（登入或每天 12:00）自動更新，5 分鐘內擴充功能自動重載。
 
+## 修訂（2026-07-13）：私有 repo ＋ 手動開放的發佈流程
+
+使用者決定 repo 平常保持**私有**，發佈時才暫時開放，並以手動觸發為主要更新方式：
+
+- **setup.ps1** 加建桌面捷徑「MetaReplyPro 更新」（以 `-Interactive` 執行 update.ps1），作為同事的一鍵更新按鈕；排程保留為備援（repo 私有時安靜失敗）。
+- **update.ps1** 新增 `-Interactive` 開關：顯示進度與結果、結束前暫停。
+- **設定頁**新增「🔄 版本與更新」卡片：顯示目前版本＋「檢查更新」按鈕（僅偵測與提示——Chrome 擴充功能無法執行本機程式，實際更新靠桌面捷徑）。manifest 加 `https://raw.githubusercontent.com/*` host 權限。
+- **發佈流程**改為：version +1 → push main → repo 改 Public → 通知同事點捷徑 → 全員更新完改回 Private。
+- **install.ps1**（同日修復）：`irm | iex` 的引導安裝器，純 ASCII 無 BOM；因 setup.ps1 的 UTF-8 BOM 會讓 iex 解析失敗（param 不被視為首語句），且 iex 下 exit 會關閉使用者視窗，故以原始 bytes 下載後改用 `-File` 執行。
+
 ## 測試計畫
 
 1. **版號比對邏輯**：update.ps1 在「遠端=本機」時不下載、「遠端較新」時下載覆蓋。

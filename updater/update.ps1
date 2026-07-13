@@ -4,20 +4,30 @@
 param(
   [string]$InstallDir = "$env:LOCALAPPDATA\MetaReplyPro",
   [string]$ManifestUrl = 'https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/chrome-extension/manifest.json',
-  [string]$ZipUrl = 'https://github.com/Keith0512/MetaReplyPro/archive/refs/heads/main.zip'
+  [string]$ZipUrl = 'https://github.com/Keith0512/MetaReplyPro/archive/refs/heads/main.zip',
+  [switch]$Interactive  # 手動執行（桌面捷徑）時顯示進度，結束前暫停讓使用者看結果
 )
 
 $ErrorActionPreference = 'Stop'
 
+# 互動模式下結束前暫停，讓使用者看得到結果再關視窗
+function Wait-IfInteractive {
+  if ($Interactive) { Write-Host ''; Read-Host '按 Enter 關閉視窗' | Out-Null }
+}
+
 if (-not (Test-Path $InstallDir)) {
   Write-Host "找不到安裝目錄 $InstallDir，請先執行 setup.ps1"
+  Wait-IfInteractive
   exit 1
 }
 
 $logFile = Join-Path $InstallDir 'update.log'
 function Write-Log([string]$Message) {
   Add-Content -Path $logFile -Value ("{0:yyyy-MM-dd HH:mm:ss}  {1}" -f (Get-Date), $Message) -Encoding utf8
+  if ($Interactive) { Write-Host $Message }
 }
+
+if ($Interactive) { Write-Host '正在檢查 MetaReplyPro 更新…' }
 
 # 來源為 http(s) 時下載，否則視為本機路徑複製（供測試以本機 fixture 模擬遠端）
 function Get-RemoteFile([string]$Source, [string]$Destination) {
@@ -43,6 +53,7 @@ try {
 
   if ($remoteVersion -le $localVersion) {
     Write-Log "已是最新版 $localVersion（遠端 $remoteVersion），不需更新"
+    Wait-IfInteractive
     exit 0
   }
 
@@ -76,9 +87,12 @@ try {
   }
 
   Write-Log "更新完成：$localVersion → $remoteVersion"
+  if ($Interactive) { Write-Host '擴充功能會在幾分鐘內自動重新載入，不需要手動操作。' }
+  Wait-IfInteractive
   exit 0
 } catch {
-  Write-Log "更新失敗：$($_.Exception.Message)"
+  Write-Log "更新失敗：$($_.Exception.Message)（倉庫可能未開放，請聯絡管理員）"
+  Wait-IfInteractive
   exit 1
 } finally {
   if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
