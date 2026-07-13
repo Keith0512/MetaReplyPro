@@ -8,6 +8,7 @@ let currentSettings = null;
 let currentProducts = [];
 let selectedProduct = null;
 let postProductMapping = {};
+let showFloatingButton = true; // popup 的「顯示機器人」開關，未設定視為 true
 
 const DEFAULT_SETTINGS = {
   fbMinDelay: 15,
@@ -876,6 +877,11 @@ function injectFloatingButton() {
   document.body.appendChild(wrapper);
 }
 
+function applyFloatingButtonVisibility() {
+  const wrapper = document.querySelector('.meta-auto-reply-wrapper');
+  if (wrapper) wrapper.style.display = showFloatingButton ? '' : 'none';
+}
+
 function updateDropdownContent(dropdown, mainBtn) {
   const platform = getPlatform();
   const postTitle = getCurrentPostTitle();
@@ -1020,10 +1026,12 @@ function init() {
   const platform = getPlatform();
   console.log(`[META AutoReply] Platform detected: [${platform}]`);
 
-  chrome.storage.sync.get(['settings', 'products', 'postProductMapping'], (result) => {
+  chrome.storage.sync.get(['settings', 'products', 'postProductMapping', 'showFloatingButton'], (result) => {
     if (result.settings) currentSettings = result.settings;
     if (result.products) currentProducts = result.products;
     if (result.postProductMapping) postProductMapping = result.postProductMapping;
+    showFloatingButton = result.showFloatingButton !== false;
+    applyFloatingButtonVisibility();
   });
 
   chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -1034,6 +1042,10 @@ function init() {
         postProductMapping = changes.postProductMapping.newValue;
         updateBindButtonStates();
       }
+      if (changes.showFloatingButton) {
+        showFloatingButton = changes.showFloatingButton.newValue !== false;
+        applyFloatingButtonVisibility();
+      }
     }
   });
 
@@ -1041,6 +1053,7 @@ function init() {
     if (!document.querySelector('.meta-auto-reply-wrapper')) {
       injectFloatingButton();
     }
+    applyFloatingButtonVisibility();
     setupPostBindingObserver();
   }, 1000);
 }

@@ -40,11 +40,66 @@
     .btn:hover {
       background-color: #4338ca;
     }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #0f172a;
+    }
+    .switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      inset: 0;
+      background-color: #cbd5e1;
+      border-radius: 20px;
+      transition: background-color 0.2s;
+      cursor: pointer;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      top: 2px;
+      background-color: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .slider {
+      background-color: #4f46e5;
+    }
+    .switch input:checked + .slider::before {
+      transform: translateX(16px);
+    }
   </style>
 </head>
 <body>
   <h3>🤖 META AutoReply</h3>
   <p>點擊下方按鈕開啟控制面板，設定您的商品連結與防封鎖回覆範本。</p>
+  <div class="toggle-row">
+    <span>顯示機器人</span>
+    <label class="switch">
+      <input type="checkbox" id="show-bot-toggle">
+      <span class="slider"></span>
+    </label>
+  </div>
   <a href="settings.html" target="_blank" class="btn">⚙️ 開啟控制面板</a>
+  <script src="popup.js"></script>
 </body>
 </html>
