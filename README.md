@@ -26,7 +26,7 @@ View your app in AI Studio: https://ai.studio/apps/a7bce6a4-5304-40f9-8e0d-f45e1
 開啟 PowerShell，貼上執行：
 
 ```powershell
-irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/setup.ps1 | iex
+irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/install.ps1 | iex
 ```
 
 完成後依畫面指示到 `chrome://extensions` 開啟「開發人員模式」，
