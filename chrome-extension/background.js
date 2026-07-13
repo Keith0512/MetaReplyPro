@@ -38,3 +38,28 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 });
+
+// ---- 未封裝版自動更新 ----
+// 未封裝擴充功能的檔案是即時從磁碟讀取的：update.ps1 換完新版檔案後，
+// 磁碟上 manifest.json 的版本會與記憶體中執行的版本不同，此時重新載入即可套用新版。
+const UPDATE_CHECK_ALARM = "update-check";
+
+function scheduleUpdateCheck() {
+  chrome.alarms.create(UPDATE_CHECK_ALARM, { periodInMinutes: 5 });
+}
+chrome.runtime.onInstalled.addListener(scheduleUpdateCheck);
+chrome.runtime.onStartup.addListener(scheduleUpdateCheck);
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== UPDATE_CHECK_ALARM) return;
+  try {
+    const response = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const diskManifest = await response.json();
+    if (diskManifest.version !== chrome.runtime.getManifest().version) {
+      console.log(`Meta Auto Reply: 偵測到新版 ${diskManifest.version}，重新載入`);
+      chrome.runtime.reload();
+    }
+  } catch (e) {
+    // 更新腳本可能正在覆蓋檔案，略過本次檢查，下次 alarm 再試
+  }
+});
