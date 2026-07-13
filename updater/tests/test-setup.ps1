@@ -21,14 +21,23 @@ Compress-Archive -Path $repoDir -DestinationPath $zipPath
 
 # --- 執行安裝
 $installDir = Join-Path $root 'install'
-& $setupScript -InstallDir $installDir -ZipUrl $zipPath -SkipScheduledTask
+$desktopDir = Join-Path $root 'desktop'
+New-Item -ItemType Directory -Path $desktopDir -Force | Out-Null
+& $setupScript -InstallDir $installDir -ZipUrl $zipPath -SkipScheduledTask -DesktopDir $desktopDir
 
 Assert (Test-Path (Join-Path $installDir 'chrome-extension\manifest.json')) '安裝 chrome-extension 資料夾'
 Assert (Test-Path (Join-Path $installDir 'update.ps1')) '安裝 update.ps1'
 Assert ($LASTEXITCODE -eq 0) '安裝結束碼為 0'
 
+# --- 建立桌面更新捷徑，且指向 update.ps1 互動模式
+$shortcutPath = Join-Path $desktopDir 'MetaReplyPro 更新.lnk'
+Assert (Test-Path $shortcutPath) '建立桌面「MetaReplyPro 更新」捷徑'
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+Assert ($shortcut.Arguments -match 'update\.ps1' -and $shortcut.Arguments -match '-Interactive') '捷徑以互動模式執行 update.ps1'
+
 # --- 重複執行應可覆蓋（安裝目錄已存在時不報錯）
-& $setupScript -InstallDir $installDir -ZipUrl $zipPath -SkipScheduledTask
+& $setupScript -InstallDir $installDir -ZipUrl $zipPath -SkipScheduledTask -DesktopDir $desktopDir
 Assert ($LASTEXITCODE -eq 0) '重複執行安裝不報錯'
 
 Remove-Item $root -Recurse -Force

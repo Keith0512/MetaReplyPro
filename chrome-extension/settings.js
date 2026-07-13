@@ -499,3 +499,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// --- 版本與更新 ---
+// 「檢查更新」只做偵測與提示：Chrome 擴充功能無法執行本機程式，
+// 實際更新由桌面的「MetaReplyPro 更新」捷徑（update.ps1）完成。
+document.addEventListener('DOMContentLoaded', () => {
+  const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/chrome-extension/manifest.json';
+  const versionEl = document.getElementById('current-version');
+  const statusEl = document.getElementById('update-status');
+  const checkBtn = document.getElementById('check-update-btn');
+
+  versionEl.textContent = chrome.runtime.getManifest().version;
+
+  checkBtn.addEventListener('click', async () => {
+    statusEl.textContent = '檢查中…';
+    try {
+      const res = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const remote = await res.json();
+      const local = chrome.runtime.getManifest().version;
+      if (remote.version === local) {
+        statusEl.textContent = `已是最新版（${local}）。`;
+      } else {
+        statusEl.textContent = `發現新版 ${remote.version}！請點兩下桌面的「MetaReplyPro 更新」捷徑進行更新，完成後擴充功能會自動重新載入。`;
+      }
+    } catch (e) {
+      statusEl.textContent = '目前檢查不到更新（管理員尚未開放，或網路問題），請稍後再試。';
+    }
+  });
+});

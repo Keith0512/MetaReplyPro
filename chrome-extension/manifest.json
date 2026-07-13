@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "META AutoReply",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "協助回覆 META 後台的 FB 留言與 IG 留言，可針對每篇推文進行自動回覆留言並私訊商品連結。",
   "permissions": [
     "storage",
@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "https://business.facebook.com/*",
-    "https://www.facebook.com/*"
+    "https://www.facebook.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "action": {
     "default_popup": "popup.html"
