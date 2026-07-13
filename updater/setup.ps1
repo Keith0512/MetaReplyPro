@@ -79,13 +79,24 @@ try {
     Write-Host '已建立自動更新排程（登入時＋每天 12:00）'
   }
 
+  # 擴充功能資料夾在隱藏的 AppData 內，用瀏覽的找不到；複製路徑讓使用者直接貼上
+  try { Set-Clipboard -Value $extensionDir -ErrorAction Stop } catch { }
+
   Write-Host ''
   Write-Host '安裝完成！接下來請手動做一次（只有第一次需要）：'
   Write-Host '  1. 開啟 Chrome，網址列輸入 chrome://extensions'
   Write-Host '  2. 開啟右上角的「開發人員模式」'
-  Write-Host "  3. 點「載入未封裝項目」，選擇資料夾：$extensionDir"
+  Write-Host '  3. 點「載入未封裝項目」，在跳出視窗下方的「資料夾」欄位貼上路徑'
+  Write-Host '     （路徑已複製到剪貼簿，直接按 Ctrl+V 再按「選擇資料夾」）：'
+  Write-Host "     $extensionDir"
   Write-Host ''
-  Write-Host '之後要更新時，點兩下桌面的「MetaReplyPro 更新」捷徑即可。'
+  Write-Host '  註：這個資料夾在隱藏的 AppData 裡，用滑鼠瀏覽找不到，貼路徑最快。'
+  Write-Host '      想在檔案總管看到它：開啟檔案總管 > 檢視 > 顯示 > 勾選「隱藏的項目」。'
+  Write-Host ''
+  Write-Host '之後的更新方式（擇一即可）：'
+  Write-Host '  - 擴充功能設定頁 >「版本與更新」> 按「立即更新」（推薦）'
+  Write-Host '  - 點兩下桌面的「MetaReplyPro 更新」捷徑'
+  Write-Host '  - 都不動也行：系統會在登入時與每天 12:00 自動檢查更新'
   exit 0
 } catch {
   Write-Host "安裝失敗：$($_.Exception.Message)" -ForegroundColor Red
