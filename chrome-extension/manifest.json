@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "META AutoReply",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAis8m2YQgNvokaUVfxjL5j8ZcyZ2WdCKH0CRQjU8TjwAt97o6dMP0ictbqZYHYZUrYtCKrWv/qlHKWNJ/0Yh+DBloJFpSipdGPfc45Uu91CA5wn8W1tLbZUvYcqt5qPA5JN7caDn7JTVm+/STTdvAFs4+1wREqVNEjbvTlngfGNZ6uLLDRvQRyTsy1F7gA4evKSasVJEm/q3cdCanSxxndW8L4cv3bp/W+tbTw/ojOdnTMhwE93kbKDczqaC1hDTWwTPzslIFVWMbbrE50/DmGOiXks8TK+uTpWpktWhHagvZVKcm4k8qa77c4jgcqEjjadw/KEl9h/atAxz5EWQj2QIDAQAB",
   "description": "協助回覆 META 後台的 FB 留言與 IG 留言，可針對每篇推文進行自動回覆留言並私訊商品連結。",
   "permissions": [
@@ -16,8 +16,20 @@
     "https://www.facebook.com/*",
     "https://raw.githubusercontent.com/*"
   ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "content_scripts": [
     {
