@@ -80,10 +80,10 @@ try {
     throw
   }
 
-  # 最後更新腳本自身（PowerShell 執行前已解析完整個檔案，覆寫執行中的腳本是安全的）
-  $newUpdater = Join-Path $repoRoot.FullName 'updater\update.ps1'
-  if (Test-Path $newUpdater) {
-    Copy-Item $newUpdater (Join-Path $InstallDir 'update.ps1') -Force
+  # 最後更新腳本自身與橋接程式（PowerShell 執行前已解析完整個檔案，覆寫執行中的腳本是安全的）
+  foreach ($name in @('update.ps1', 'update-host.ps1', 'update-host.bat')) {
+    $src = Join-Path $repoRoot.FullName "updater\$name"
+    if (Test-Path $src) { Copy-Item $src (Join-Path $InstallDir $name) -Force }
   }
 
   Write-Log "更新完成：$localVersion → $remoteVersion"

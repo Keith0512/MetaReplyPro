@@ -6,8 +6,12 @@ param(
   [string]$InstallDir = "$env:LOCALAPPDATA\MetaReplyPro",
   [string]$ZipUrl = 'https://github.com/Keith0512/MetaReplyPro/archive/refs/heads/main.zip',
   [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
-  [switch]$SkipScheduledTask
+  [switch]$SkipScheduledTask,
+  [switch]$SkipRegistry
 )
+
+# 擴充功能的固定 ID（由 manifest.json 的 key 欄位決定），native host 只允許它呼叫
+$extensionId = 'gnekicgafkpbmafejjcbaagcpfnmfjbh'
 
 $ErrorActionPreference = 'Stop'
 $tempDir = Join-Path $env:TEMP ("MetaReplyProSetup_" + [guid]::NewGuid().ToString('N'))
@@ -33,6 +37,25 @@ try {
   if (Test-Path $extensionDir) { Remove-Item $extensionDir -Recurse -Force }
   Copy-Item (Join-Path $repoRoot.FullName 'chrome-extension') $extensionDir -Recurse
   Copy-Item (Join-Path $repoRoot.FullName 'updater\update.ps1') (Join-Path $InstallDir 'update.ps1') -Force
+  Copy-Item (Join-Path $repoRoot.FullName 'updater\update-host.ps1') (Join-Path $InstallDir 'update-host.ps1') -Force
+  Copy-Item (Join-Path $repoRoot.FullName 'updater\update-host.bat') (Join-Path $InstallDir 'update-host.bat') -Force
+
+  # Native Messaging host manifest：讓設定頁的「立即更新」按鈕能呼叫本機更新程式
+  $hostManifestPath = Join-Path $InstallDir 'com.metareplypro.updater.json'
+  $hostManifest = @{
+    name            = 'com.metareplypro.updater'
+    description     = 'MetaReplyPro one-click updater'
+    path            = (Join-Path $InstallDir 'update-host.bat')
+    type            = 'stdio'
+    allowed_origins = @("chrome-extension://$extensionId/")
+  } | ConvertTo-Json
+  [IO.File]::WriteAllText($hostManifestPath, $hostManifest, [Text.UTF8Encoding]::new($false))
+
+  if (-not $SkipRegistry) {
+    $regPath = 'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.metareplypro.updater'
+    New-Item -Path $regPath -Force | Out-Null
+    Set-ItemProperty -Path $regPath -Name '(default)' -Value $hostManifestPath
+  }
 
   # 建立桌面「MetaReplyPro 更新」捷徑：同事點兩下即可手動更新（互動模式會顯示結果）
   $shortcutPath = Join-Path $DesktopDir 'MetaReplyPro 更新.lnk'

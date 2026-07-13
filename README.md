@@ -37,10 +37,10 @@ irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/instal
 ### 更新機制
 
 - Repo 平常保持私有，開發者發佈新版時暫時開放。
-- **手動更新（主要方式）**：點兩下桌面的「MetaReplyPro 更新」捷徑，會顯示檢查與更新結果。
-- 設定頁的「🔄 版本與更新」卡片可按「檢查更新」確認目前是否有新版（僅偵測提示，實際更新請點桌面捷徑）。
+- **一鍵更新（主要方式）**：設定頁「🔄 版本與更新」卡片按「立即更新」，透過安裝時註冊的 Native Messaging 橋接程式執行更新並自動重新載入；「檢查更新」可先確認是否有新版。
+- **桌面捷徑（備用）**：點兩下桌面的「MetaReplyPro 更新」捷徑，會顯示檢查與更新結果。
 - 排程備援：Windows 排程工作「MetaReplyPro Update」在登入時與每天 12:00 自動檢查；repo 未開放時會安靜跳過。
-- 更新完成後擴充功能會在 5 分鐘內自動重新載入。更新紀錄在 `%LOCALAPPDATA%\MetaReplyPro\update.log`；上一版備份在 `chrome-extension.backup`。
+- 更新紀錄在 `%LOCALAPPDATA%\MetaReplyPro\update.log`；上一版備份在 `chrome-extension.backup`。
 
 ### 發佈新版（開發者）
 

@@ -79,6 +79,16 @@ main 分支即正式發佈通道：push 到 main 等於發佈給所有使用者�
 - **發佈流程**改為：version +1 → push main → repo 改 Public → 通知同事點捷徑 → 全員更新完改回 Private。
 - **install.ps1**（同日修復）：`irm | iex` 的引導安裝器，純 ASCII 無 BOM；因 setup.ps1 的 UTF-8 BOM 會讓 iex 解析失敗（param 不被視為首語句），且 iex 下 exit 會關閉使用者視窗，故以原始 bytes 下載後改用 `-File` 執行。
 
+## 修訂（2026-07-13 之二）：設定頁一鍵更新（Native Messaging）
+
+使用者希望在設定頁直接按按鈕完成更新，不必回桌面點捷徑：
+
+- **固定擴充功能 ID**：manifest.json 加 `key`（RSA 公鑰），ID 固定為 `gnekicgafkpbmafejjcbaagcpfnmfjbh`，各機器一致；私鑰存於開發者本機 `Documents\MetaReplyPro-extension-key.pem`（不進 repo）。代價：既有安裝者需移除舊項目重新載入一次，chrome.storage 設定會重置。
+- **Native host**：`updater/update-host.ps1`（stdio 協議：4-byte LE 長度前綴＋UTF-8 JSON；收訊即執行同目錄 update.ps1，回報 ok/updated/before/after）＋ `update-host.bat` 包裝。stdout 僅輸出協議內容。
+- **setup.ps1**：安裝 host 檔案、產生 `com.metareplypro.updater.json`（allowed_origins 綁固定 ID）、寫入 `HKCU:\Software\Google\Chrome\NativeMessagingHosts`（`-SkipRegistry` 供測試）。update.ps1 自我更新時同步刷新 host 檔案。
+- **設定頁**：「立即更新」按鈕 `sendNativeMessage` 呼叫 host，成功且有新版時 3 秒後 `chrome.runtime.reload()`；host 未註冊時提示重跑安裝或用桌面捷徑。manifest 加 `nativeMessaging` 權限，版號 1.3.0。
+- 桌面捷徑與排程保留為備援。
+
 ## 測試計畫
 
 1. **版號比對邏輯**：update.ps1 在「遠端=本機」時不下載、「遠端較新」時下載覆蓋。

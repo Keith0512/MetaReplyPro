@@ -521,10 +521,33 @@ document.addEventListener('DOMContentLoaded', () => {
       if (remote.version === local) {
         statusEl.textContent = `已是最新版（${local}）。`;
       } else {
-        statusEl.textContent = `發現新版 ${remote.version}！請點兩下桌面的「MetaReplyPro 更新」捷徑進行更新，完成後擴充功能會自動重新載入。`;
+        statusEl.textContent = `發現新版 ${remote.version}！按「立即更新」即可更新。`;
       }
     } catch (e) {
       statusEl.textContent = '目前檢查不到更新（管理員尚未開放，或網路問題），請稍後再試。';
     }
+  });
+
+  // 「立即更新」透過 Native Messaging 呼叫本機的 update-host（由安裝腳本註冊），
+  // host 執行 update.ps1 換檔後回報結果，這裡再重新載入擴充功能套用新版。
+  const runUpdateBtn = document.getElementById('run-update-btn');
+  runUpdateBtn.addEventListener('click', () => {
+    statusEl.textContent = '更新中，請稍候…';
+    runUpdateBtn.disabled = true;
+    chrome.runtime.sendNativeMessage('com.metareplypro.updater', { action: 'update' }, (resp) => {
+      runUpdateBtn.disabled = false;
+      if (chrome.runtime.lastError) {
+        statusEl.textContent = '無法啟動更新程式：請重新執行安裝指令以啟用一鍵更新，或點兩下桌面的「MetaReplyPro 更新」捷徑。';
+        return;
+      }
+      if (resp && resp.ok && resp.updated) {
+        statusEl.textContent = `更新完成（${resp.before} → ${resp.after}），3 秒後套用新版；套用後請重新整理此頁。`;
+        setTimeout(() => chrome.runtime.reload(), 3000);
+      } else if (resp && resp.ok) {
+        statusEl.textContent = `已是最新版（${resp.after || resp.before}）。`;
+      } else {
+        statusEl.textContent = (resp && resp.message) ? `更新失敗：${resp.message}` : '更新失敗（管理員尚未開放，或網路問題）。';
+      }
+    });
   });
 });
