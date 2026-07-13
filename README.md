@@ -34,6 +34,10 @@ irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/instal
 完成後依畫面指示到 `chrome://extensions` 開啟「開發人員模式」，
 用「載入未封裝項目」選擇 `%LOCALAPPDATA%\MetaReplyPro\chrome-extension`（只有第一次需要）。
 
+> 💡 這個資料夾在隱藏的 AppData 裡，用滑鼠瀏覽找不到。安裝腳本已把路徑複製到剪貼簿，
+> 在「載入未封裝項目」跳出的視窗下方「資料夾」欄位按 Ctrl+V 貼上、再按「選擇資料夾」即可。
+> 想在檔案總管看到隱藏資料夾：檔案總管 → 檢視 → 顯示 → 勾選「隱藏的項目」。
+
 ### 更新機制
 
 - Repo 平常保持私有，開發者發佈新版時暫時開放。
@@ -46,5 +50,5 @@ irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/instal
 
 1. 修改程式後，把 `chrome-extension/manifest.json` 的 `version` 加一號（例如 `1.2.0` → `1.2.1`），push 到 `main`。
 2. 到 GitHub 把 repo 改為 **Public**（Settings → Danger Zone → Change visibility）。
-3. 通知同事點桌面的「MetaReplyPro 更新」捷徑（沒點的人也會在登入或中午的排程自動補更新）。
+3. 通知同事在設定頁按「立即更新」（或點桌面捷徑；都沒動的人也會在登入或中午的排程自動補更新）。
 4. 確認大家都更新完後，把 repo 改回 **Private**。
