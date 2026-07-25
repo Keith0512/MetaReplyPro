@@ -1,7 +1,7 @@
 # MetaReplyPro 簽章 Release 更新設計
 
 日期：2026-07-25
-狀態：已實作
+狀態：已實作（Windows 1.5.0；macOS 1.5.1）
 
 ## 安全目標
 
@@ -10,7 +10,7 @@ GitHub repository、`main` 分支或傳輸中的 release asset 即使遭到未�
 ## 信任根
 
 - 發布端使用獨立 RSA 3072-bit 私鑰，以 RSASSA-PKCS1-v1_5／SHA-256 簽署 manifest 的原始 UTF-8 bytes。
-- 客戶端只保存 `trusted-update-key.json` 內的公開金鑰。
+- Windows 客戶端保存 `trusted-update-key.json`，macOS 客戶端保存相同公開金鑰的 JSON 與 PEM 格式。
 - 私鑰不進 Git，由發布保管人限制權限並離線備份。
 - 更新包內的公開金鑰必須與目前信任根相同，避免意外或未規劃的金鑰輪替。
 
@@ -33,6 +33,7 @@ ZIP 只有一個頂層資料夾，並包含：
 - `chrome-extension/`
 - 安全更新器與 Native Messaging host
 - `trusted-update-key.json`
+- `trusted-update-key.pem`
 - `release-info.json`，記錄版本與 commit
 
 ## 客戶端驗證順序
@@ -44,6 +45,15 @@ ZIP 只有一個頂層資料夾，並包含：
 5. 下載後比對完整 ZIP 的 SHA-256，再解壓縮。
 6. 核對 ZIP 內版本、commit、必要更新檔及公開金鑰。
 7. 備份舊擴充功能與更新器後換版；換版失敗時還原。
+
+## macOS Native Messaging
+
+- 使用者安裝位置為 `~/Library/Application Support/MetaReplyPro`，不需要管理員權限。
+- Chrome host manifest 位於 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.metareplypro.updater.json`。
+- manifest 以絕對路徑指向 `native-host-macos.sh`，且 `allowed_origins` 只允許固定的 MetaReplyPro 擴充功能 ID。
+- host 遵循 Chrome Native Messaging 的 4-byte native-endian 長度加 UTF-8 JSON stdio 協議；stdout 不輸出其他內容。
+- macOS 更新器只使用系統內建的 zsh、curl、OpenSSL、shasum、plutil 與 unzip，不要求 Node、Python 或 Homebrew。
+- 1.5.0 或更早的 Mac 安裝必須先以 1.5.1 正式 ZIP 手動安裝一次，建立原生 host 後才能使用設定頁的「立即更新」。
 
 ## 安裝與排程
 

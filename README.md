@@ -2,6 +2,8 @@
 
 MetaReplyPro 是提供 Facebook／Instagram 商務留言回覆功能的 Chrome 擴充功能。
 
+從 1.5.1 起，擴充功能設定頁的「立即更新」同時支援 Windows 與 macOS。兩個系統都會先驗證正式 Release 的簽章、commit、版本及 ZIP 的 SHA-256，驗證失敗就保留舊版。
+
 ## 本機開發
 
 需求：Node.js。
@@ -36,6 +38,37 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\install.ps1
 
 安裝器預設不建立自動排程。設定頁的「立即更新」及桌面「MetaReplyPro 更新」捷徑都會先驗證簽章。
 
+## macOS 安裝
+
+需求：Google Chrome。不需要安裝 Node、Python、Homebrew，也不需要管理員權限。
+
+1. 向管理員取得已驗證的 `MetaReplyPro-vX.Y.Z.zip`。
+2. 解壓縮 ZIP。
+3. 開啟「終端機」，進入解壓後的資料夾並執行：
+
+```bash
+/bin/zsh ./updater/install-macos.sh
+```
+
+4. 安裝完成後，到 `chrome://extensions` 開啟「開發人員模式」。
+5. 點「載入未封裝項目」，貼上安裝器已複製到剪貼簿的資料夾路徑。
+
+安裝器會把程式放在：
+
+```text
+~/Library/Application Support/MetaReplyPro
+```
+
+並在 Chrome 規定的使用者目錄註冊 Native Messaging host。完成這次安裝後，日後可直接在擴充功能設定頁按「立即更新」，操作方式與 Windows 相同。
+
+已手動載入 1.5.0 或更早版本的 Mac，必須先用 1.5.1（或更新版本）的正式 ZIP 執行上述安裝一次，才能建立 macOS 的 Native Messaging host。這次遷移不會刪除商品資料、對話範本或設定，因為這些資料保存在相同擴充功能 ID 的 Chrome Storage。
+
+macOS 更新紀錄位於：
+
+```text
+~/Library/Application Support/MetaReplyPro/update.log
+```
+
 ### 舊版緊急緩解
 
 已使用舊安裝器的電腦，請先停用原本的自動更新排程：
@@ -60,7 +93,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\setup.ps1 -Sou
 
 ### 簽章金鑰
 
-- `updater/trusted-update-key.json` 是可公開的信任根，必須進版控。
+- `updater/trusted-update-key.json` 與 `updater/trusted-update-key.pem` 是同一把可公開信任根的 Windows／macOS 格式，必須一起進版控。
 - RSA 私鑰不得放入 repository、release ZIP、雲端同步資料夾或聊天訊息。
 - 私鑰應由指定發布人保管，限制檔案權限並保存一份離線加密備份。
 - 遺失私鑰時，現有客戶端不會信任新金鑰；金鑰輪替必須先用舊金鑰簽署過渡版本。
@@ -116,3 +149,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\tests\run-test
 ```
 
 Windows 測試涵蓋正常更新、錯誤簽章、SHA-256 不符、版本／commit 不一致、安裝來源驗證與 Native Messaging。
+
+macOS 完整測試：
+
+```bash
+npm run test:macos
+```
+
+macOS 測試涵蓋本機安裝、Chrome host 註冊、正常更新、錯誤簽章、SHA-256 不符、版本／commit 不一致、備份保留與 Native Messaging stdio 協議。

@@ -63,6 +63,9 @@ if (!privateRelative.startsWith('..') && !isAbsolute(privateRelative)) {
 const trustedKeyPath = resolve(
   args.get('--public-key') ?? join(repoRoot, 'updater/trusted-update-key.json'),
 );
+const trustedPemPath = resolve(
+  args.get('--public-key-pem') ?? join(repoRoot, 'updater/trusted-update-key.pem'),
+);
 const trustedKey = JSON.parse(readFileSync(trustedKeyPath, 'utf8'));
 const privateKey = createPrivateKey(readFileSync(privateKeyPath));
 const derivedKey = publicKeyRecord(createPublicKey(privateKey));
@@ -72,6 +75,14 @@ if (
   derivedKey.rsaKeyValue !== trustedKey.rsaKeyValue
 ) {
   throw new Error('私鑰與 repository 內的 trusted-update-key.json 不相符');
+}
+const publicKey = publicKeyFromRecord(trustedKey);
+const expectedPublicPem = publicKey.export({ type: 'spki', format: 'pem' });
+if (
+  !existsSync(trustedPemPath) ||
+  readFileSync(trustedPemPath, 'utf8').trim() !== expectedPublicPem.trim()
+) {
+  throw new Error('trusted-update-key.pem 與 trusted-update-key.json 不相符');
 }
 
 if (!flags.has('--allow-dirty') && git('status', '--porcelain')) {
@@ -122,12 +133,15 @@ try {
     'update-host.bat',
     'disable-auto-update.ps1',
     'trusted-update-key.json',
+    'install-macos.sh',
+    'update-macos.sh',
+    'native-host-macos.sh',
+    'trusted-update-key.pem',
   ];
   for (const file of updaterFiles) {
-    const source =
-      file === 'trusted-update-key.json'
-        ? trustedKeyPath
-        : join(repoRoot, 'updater', file);
+    let source = join(repoRoot, 'updater', file);
+    if (file === 'trusted-update-key.json') source = trustedKeyPath;
+    if (file === 'trusted-update-key.pem') source = trustedPemPath;
     cpSync(source, join(packageRoot, 'updater', file));
   }
 
@@ -162,7 +176,6 @@ try {
     key: privateKey,
     ...rsaSigningOptions,
   });
-  const publicKey = publicKeyFromRecord(trustedKey);
   if (
     !verify('RSA-SHA256', manifestBytes, {
       key: publicKey,

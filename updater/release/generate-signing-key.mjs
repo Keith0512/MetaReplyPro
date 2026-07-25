@@ -12,17 +12,19 @@ for (let index = 2; index < process.argv.length; index += 2) {
 
 const privateKeyArg = args.get('--private-key');
 const publicKeyArg = args.get('--public-key') ?? resolve(repoRoot, 'updater/trusted-update-key.json');
+const publicPemArg = args.get('--public-key-pem') ?? resolve(repoRoot, 'updater/trusted-update-key.pem');
 if (!privateKeyArg || !isAbsolute(privateKeyArg)) {
   throw new Error('請以 --private-key 指定 repository 外的絕對路徑');
 }
 
 const privateKeyPath = resolve(privateKeyArg);
 const publicKeyPath = resolve(publicKeyArg);
+const publicPemPath = resolve(publicPemArg);
 const privateRelative = relative(repoRoot, privateKeyPath);
 if (!privateRelative.startsWith('..') && !isAbsolute(privateRelative)) {
   throw new Error('私鑰不可存放在 repository 內');
 }
-if (existsSync(privateKeyPath) || existsSync(publicKeyPath)) {
+if (existsSync(privateKeyPath) || existsSync(publicKeyPath) || existsSync(publicPemPath)) {
   throw new Error('目標金鑰已存在；為避免覆寫，請先確認金鑰輪替流程');
 }
 
@@ -42,6 +44,12 @@ writeFileSync(
   `${JSON.stringify(publicKeyRecord(publicKey), null, 2)}\n`,
   { flag: 'wx' },
 );
+writeFileSync(
+  publicPemPath,
+  publicKey.export({ type: 'spki', format: 'pem' }),
+  { flag: 'wx' },
+);
 
 console.log(`公開金鑰：${publicKeyPath}`);
+console.log(`macOS 公開金鑰：${publicPemPath}`);
 console.log(`私鑰：${privateKeyPath}（請離線備份，絕對不要加入 Git）`);

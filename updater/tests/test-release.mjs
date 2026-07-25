@@ -41,6 +41,7 @@ try {
   });
   const privateKeyPath = join(tempDir, 'test-private.pem');
   const publicKeyPath = join(tempDir, 'test-public.json');
+  const publicPemPath = join(tempDir, 'test-public.pem');
   writeFileSync(
     privateKeyPath,
     privateKey.export({ type: 'pkcs8', format: 'pem' }),
@@ -50,6 +51,10 @@ try {
     publicKeyPath,
     `${JSON.stringify(publicKeyRecord(publicKey), null, 2)}\n`,
   );
+  writeFileSync(
+    publicPemPath,
+    publicKey.export({ type: 'spki', format: 'pem' }),
+  );
 
   const outputRoot = join(tempDir, 'output');
   const build = runNode('updater/release/build-release.mjs', [
@@ -57,10 +62,12 @@ try {
     privateKeyPath,
     '--public-key',
     publicKeyPath,
+    '--public-key-pem',
+    publicPemPath,
     '--output',
     outputRoot,
     '--tag',
-    'test-v1.5.0',
+    'test-v1.5.1',
     '--commit',
     '1111111111111111111111111111111111111111',
     '--allow-dirty',
@@ -70,10 +77,10 @@ try {
     console.error(build.stderr);
     process.exitCode = 1;
   } else {
-    const releaseDir = join(outputRoot, 'test-v1.5.0');
+    const releaseDir = join(outputRoot, 'test-v1.5.1');
     const manifestPath = join(releaseDir, 'update-manifest.json');
     const signaturePath = `${manifestPath}.sig`;
-    const assetPath = join(releaseDir, 'MetaReplyPro-v1.5.0.zip');
+    const assetPath = join(releaseDir, 'MetaReplyPro-v1.5.1.zip');
 
     const verified = runNode('updater/release/verify-release.mjs', [
       '--manifest',
@@ -114,6 +121,18 @@ try {
     writeFileSync(manifestPath, originalManifest);
 
     const originalAsset = readFileSync(assetPath);
+    const listing = spawnSync('/usr/bin/unzip', ['-Z1', assetPath], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    assert(
+      listing.status === 0 &&
+        listing.stdout.includes('/updater/install-macos.sh') &&
+        listing.stdout.includes('/updater/update-macos.sh') &&
+        listing.stdout.includes('/updater/native-host-macos.sh') &&
+        listing.stdout.includes('/updater/trusted-update-key.pem'),
+      'release ZIP 包含完整 macOS 安裝與更新元件',
+    );
     writeFileSync(assetPath, Buffer.concat([originalAsset, Buffer.from('tampered')]));
     const badHash = runNode('updater/release/verify-release.mjs', [
       '--manifest',

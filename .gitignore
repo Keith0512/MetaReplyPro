@@ -9,6 +9,7 @@ coverage/
 安裝指令.txt
 /release/
 *.pem
+!updater/trusted-update-key.pem
 *.pfx
 *.p12
 *.key

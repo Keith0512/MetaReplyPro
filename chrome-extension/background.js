@@ -40,7 +40,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // ---- 未封裝版自動更新 ----
-// 未封裝擴充功能的檔案是即時從磁碟讀取的：update.ps1 換完新版檔案後，
+// 未封裝擴充功能的檔案是即時從磁碟讀取的：原生更新器換完新版檔案後，
 // 磁碟上 manifest.json 的版本會與記憶體中執行的版本不同，此時重新載入即可套用新版。
 const UPDATE_CHECK_ALARM = "update-check";
 

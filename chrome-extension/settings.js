@@ -515,7 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 「立即更新」透過 Native Messaging 呼叫本機的 update-host（由安裝腳本註冊），
-  // host 執行 update.ps1 換檔後回報結果，這裡再重新載入擴充功能套用新版。
+  // host 執行目前作業系統的安全更新器後回報結果，這裡再重新載入擴充功能套用新版。
   const runUpdateBtn = document.getElementById('run-update-btn');
   runUpdateBtn.addEventListener('click', () => {
     statusEl.textContent = '正在下載並驗證安全更新，請稍候…';
@@ -523,7 +523,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendNativeMessage('com.metareplypro.updater', { action: 'update' }, (resp) => {
       runUpdateBtn.disabled = false;
       if (chrome.runtime.lastError) {
-        statusEl.textContent = '無法啟動安全更新程式：請用已驗證的正式安裝包重新安裝，或使用桌面的更新捷徑。';
+        statusEl.textContent = '無法啟動安全更新程式：請用對應 Windows／macOS 的正式安裝包重新安裝；Windows 也可使用桌面的更新捷徑。';
         return;
       }
       if (resp && resp.ok && resp.updated) {
