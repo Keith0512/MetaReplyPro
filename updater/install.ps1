@@ -1,18 +1,13 @@
-# MetaReplyPro bootstrap installer, meant to be run via:
-#   irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/install.ps1 | iex
-#
-# This file MUST stay pure ASCII with NO BOM, NO param block and NO exit:
-# Invoke-Expression cannot parse a script whose text starts with a BOM
-# character, and `exit` under iex would close the user's whole console.
-# It downloads setup.ps1 as raw bytes (keeping its UTF-8 BOM intact) and
-# runs it with -File, which handles BOM, param blocks, Chinese text and
-# exit codes correctly.
+# MetaReplyPro local release installer.
+# Run this file only from a release bundle verified by your administrator.
+# It intentionally performs no network download and never executes GitHub main.
 $ErrorActionPreference = 'Stop'
-$setupUrl = 'https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/setup.ps1'
-$setupPath = Join-Path $env:TEMP 'MetaReplyPro-setup.ps1'
-Invoke-WebRequest -Uri $setupUrl -OutFile $setupPath -UseBasicParsing
-try {
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setupPath
-} finally {
-  Remove-Item $setupPath -Force -ErrorAction SilentlyContinue
+$setupPath = Join-Path $PSScriptRoot 'setup.ps1'
+$sourceDir = Split-Path $PSScriptRoot -Parent
+if (-not (Test-Path -LiteralPath (Join-Path $sourceDir 'release-info.json'))) {
+  throw 'This installer must be run from an extracted, verified MetaReplyPro release bundle.'
+}
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setupPath -SourceDir $sourceDir
+if ($LASTEXITCODE -ne 0) {
+  throw "MetaReplyPro setup failed with exit code $LASTEXITCODE."
 }

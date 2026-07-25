@@ -7,3 +7,9 @@ coverage/
 .env*
 !.env.example
 安裝指令.txt
+/release/
+*.pem
+*.pfx
+*.p12
+*.key
+updater/release-output/

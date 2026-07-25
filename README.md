@@ -1,54 +1,118 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# MetaReplyPro
 
-# Run and deploy your AI Studio app
+MetaReplyPro 是提供 Facebook／Instagram 商務留言回覆功能的 Chrome 擴充功能。
 
-This contains everything you need to run your app locally.
+## 本機開發
 
-View your app in AI Studio: https://ai.studio/apps/a7bce6a4-5304-40f9-8e0d-f45e166ebb37
+需求：Node.js。
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
-
-## Chrome 擴充功能：安裝與自動更新
-
-### 首次安裝（Windows）
-
-> 安裝的當下 repo 必須處於「公開」狀態（請先聯絡管理員開放）。
-
-開啟 PowerShell，貼上執行：
-
-```powershell
-irm https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/updater/install.ps1 | iex
+```bash
+npm install
+npm run dev
 ```
 
-完成後依畫面指示到 `chrome://extensions` 開啟「開發人員模式」，
-用「載入未封裝項目」選擇 `%LOCALAPPDATA%\MetaReplyPro\chrome-extension`（只有第一次需要）。
+需要使用 AI Studio 功能時，請依照 `.env.example` 建立 `.env.local`，不要把 API key 加入 Git。
 
-> 💡 這個資料夾在隱藏的 AppData 裡，用滑鼠瀏覽找不到。安裝腳本已把路徑複製到剪貼簿，
-> 在「載入未封裝項目」跳出的視窗下方「資料夾」欄位按 Ctrl+V 貼上、再按「選擇資料夾」即可。
-> 想在檔案總管看到隱藏資料夾：檔案總管 → 檢視 → 顯示 → 勾選「隱藏的項目」。
+## Windows 安裝
 
-### 更新機制
+### 重要安全規則
 
-- Repo 平常保持私有，開發者發佈新版時暫時開放。
-- **一鍵更新（主要方式）**：設定頁「🔄 版本與更新」卡片按「立即更新」，透過安裝時註冊的 Native Messaging 橋接程式執行更新並自動重新載入；「檢查更新」可先確認是否有新版。
-- **桌面捷徑（備用）**：點兩下桌面的「MetaReplyPro 更新」捷徑，會顯示檢查與更新結果。
-- 排程備援：Windows 排程工作「MetaReplyPro Update」在登入時與每天 12:00 自動檢查；repo 未開放時會安靜跳過。
-- 更新紀錄在 `%LOCALAPPDATA%\MetaReplyPro\update.log`；上一版備份在 `chrome-extension.backup`。
+- 不要再執行 `irm .../main/... | iex`。
+- 不要直接下載或安裝 `main.zip`。
+- 初次安裝必須使用管理員已驗證並透過可信管道提供的正式 release ZIP。
+- 更新器只接受固定公開金鑰簽署的 release manifest；ZIP 的 SHA-256、版本及 commit 任一不符都會拒絕更新。
 
-### 發佈新版（開發者）
+### 首次安裝
 
-1. 修改程式後，把 `chrome-extension/manifest.json` 的 `version` 加一號（例如 `1.2.0` → `1.2.1`），push 到 `main`。
-2. 到 GitHub 把 repo 改為 **Public**（Settings → Danger Zone → Change visibility）。
-3. 通知同事在設定頁按「立即更新」（或點桌面捷徑；都沒動的人也會在登入或中午的排程自動補更新）。
-4. 確認大家都更新完後，把 repo 改回 **Private**。
+1. 向管理員取得已驗證的 `MetaReplyPro-vX.Y.Z.zip`。
+2. 解壓縮 ZIP。
+3. 在解壓後的資料夾執行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\install.ps1
+```
+
+4. 到 `chrome://extensions` 開啟「開發人員模式」，選擇安裝程式顯示並複製到剪貼簿的 `chrome-extension` 資料夾。
+
+安裝器預設不建立自動排程。設定頁的「立即更新」及桌面「MetaReplyPro 更新」捷徑都會先驗證簽章。
+
+### 舊版緊急緩解
+
+已使用舊安裝器的電腦，請先停用原本的自動更新排程：
+
+```powershell
+Disable-ScheduledTask -TaskName 'MetaReplyPro Update'
+```
+
+接著使用可信管道取得的正式 release ZIP 重新安裝一次，建立新的更新信任根。不要用舊版「立即更新」按鈕進行這次遷移。
+
+### 選擇性啟用排程
+
+完成安全版本安裝及 Windows 負向測試後，才可從解壓後的正式 release 明確啟用排程：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\setup.ps1 -SourceDir . -EnableScheduledTask
+```
+
+排程會在登入及每日 12:00 執行，但每次仍必須通過簽章與 SHA-256 驗證。
+
+## 正式發布
+
+### 簽章金鑰
+
+- `updater/trusted-update-key.json` 是可公開的信任根，必須進版控。
+- RSA 私鑰不得放入 repository、release ZIP、雲端同步資料夾或聊天訊息。
+- 私鑰應由指定發布人保管，限制檔案權限並保存一份離線加密備份。
+- 遺失私鑰時，現有客戶端不會信任新金鑰；金鑰輪替必須先用舊金鑰簽署過渡版本。
+
+建立全新金鑰只應執行一次：
+
+```bash
+node updater/release/generate-signing-key.mjs \
+  --private-key /absolute/path/outside-repository/release-signing-private.pem
+```
+
+### 建置 release
+
+1. 完成程式碼審查。
+2. 更新 `chrome-extension/manifest.json` 版本並提交。
+3. 確認工作目錄乾淨，而且目前 commit 就是要發布的內容。
+4. 用保管的私鑰建置：
+
+```bash
+node updater/release/build-release.mjs \
+  --private-key /absolute/path/to/release-signing-private.pem
+```
+
+輸出位置為 `release/vX.Y.Z/`，包含：
+
+- `MetaReplyPro-vX.Y.Z.zip`
+- `update-manifest.json`
+- `update-manifest.json.sig`
+
+發布前再驗證一次：
+
+```bash
+node updater/release/verify-release.mjs \
+  --manifest release/vX.Y.Z/update-manifest.json
+```
+
+建立與版本相同的 GitHub tag／release，並原樣上傳這三個檔案。不要重新壓縮或手動修改 manifest；任何 byte 改變都會讓簽章或 SHA-256 失效。
+
+更新器固定從 GitHub Releases 的 `latest/download` 讀取已簽章 manifest，再依 manifest 下載版本化 asset，不再信任浮動 `main`。Repository 無法匿名讀取時，客戶端只會記錄失敗並保留舊版。
+
+## 測試
+
+跨平台 release 簽章與竄改測試：
+
+```bash
+npm run test:release
+```
+
+Windows PowerShell 5.1 完整測試：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\tests\run-tests.ps1
+```
+
+Windows 測試涵蓋正常更新、錯誤簽章、SHA-256 不符、版本／commit 不一致、安裝來源驗證與 Native Messaging。

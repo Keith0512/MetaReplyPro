@@ -50,7 +50,7 @@ try {
   if ($code -eq 0) {
     Send-Message @{ ok = $true; updated = ($before -ne $after); before = $before; after = $after }
   } else {
-    Send-Message @{ ok = $false; message = '更新失敗（倉庫可能未開放）'; before = $before; after = $after }
+    Send-Message @{ ok = $false; message = '更新失敗（release 不可用、簽章無效或網路問題）'; before = $before; after = $after }
   }
 } catch {
   Send-Message @{ ok = $false; message = $_.Exception.Message }

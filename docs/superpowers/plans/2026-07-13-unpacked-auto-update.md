@@ -1,5 +1,7 @@
 # MetaReplyPro 未封裝自動更新機制 Implementation Plan
 
+> **已於 2026-07-25 被安全更新設計取代。** 此計畫中的浮動 `main` 下載與預設排程僅供歷史參考，不得重新實作。請見 `../specs/2026-07-25-signed-release-update-design.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 讓以「載入未封裝項目」安裝的 MetaReplyPro 擴充功能，在開發者 push 新版到 GitHub main 後，使用者電腦自動下載、覆蓋並重新載入新版。

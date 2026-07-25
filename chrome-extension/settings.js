@@ -501,43 +501,29 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- 版本與更新 ---
-// 「檢查更新」只做偵測與提示：Chrome 擴充功能無法執行本機程式，
-// 實際更新由桌面的「MetaReplyPro 更新」捷徑（update.ps1）完成。
+// 版本資訊只由本機顯示；遠端 release 必須交給原生更新器驗證簽章，
+// 避免擴充功能直接信任未驗證的 GitHub manifest。
 document.addEventListener('DOMContentLoaded', () => {
-  const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/Keith0512/MetaReplyPro/main/chrome-extension/manifest.json';
   const versionEl = document.getElementById('current-version');
   const statusEl = document.getElementById('update-status');
   const checkBtn = document.getElementById('check-update-btn');
 
   versionEl.textContent = chrome.runtime.getManifest().version;
 
-  checkBtn.addEventListener('click', async () => {
-    statusEl.textContent = '檢查中…';
-    try {
-      const res = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const remote = await res.json();
-      const local = chrome.runtime.getManifest().version;
-      if (remote.version === local) {
-        statusEl.textContent = `已是最新版（${local}）。`;
-      } else {
-        statusEl.textContent = `發現新版 ${remote.version}！按「立即更新」即可更新。`;
-      }
-    } catch (e) {
-      statusEl.textContent = '目前檢查不到更新（管理員尚未開放，或網路問題），請稍後再試。';
-    }
+  checkBtn.addEventListener('click', () => {
+    statusEl.textContent = '請按「立即更新」進行安全檢查；更新器會先驗證 release 簽章與檔案雜湊。';
   });
 
   // 「立即更新」透過 Native Messaging 呼叫本機的 update-host（由安裝腳本註冊），
   // host 執行 update.ps1 換檔後回報結果，這裡再重新載入擴充功能套用新版。
   const runUpdateBtn = document.getElementById('run-update-btn');
   runUpdateBtn.addEventListener('click', () => {
-    statusEl.textContent = '更新中，請稍候…';
+    statusEl.textContent = '正在下載並驗證安全更新，請稍候…';
     runUpdateBtn.disabled = true;
     chrome.runtime.sendNativeMessage('com.metareplypro.updater', { action: 'update' }, (resp) => {
       runUpdateBtn.disabled = false;
       if (chrome.runtime.lastError) {
-        statusEl.textContent = '無法啟動更新程式：請重新執行安裝指令以啟用一鍵更新，或點兩下桌面的「MetaReplyPro 更新」捷徑。';
+        statusEl.textContent = '無法啟動安全更新程式：請用已驗證的正式安裝包重新安裝，或使用桌面的更新捷徑。';
         return;
       }
       if (resp && resp.ok && resp.updated) {
@@ -546,7 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (resp && resp.ok) {
         statusEl.textContent = `已是最新版（${resp.after || resp.before}）。`;
       } else {
-        statusEl.textContent = (resp && resp.message) ? `更新失敗：${resp.message}` : '更新失敗（管理員尚未開放，或網路問題）。';
+        statusEl.textContent = (resp && resp.message) ? `更新失敗：${resp.message}` : '更新失敗（release 不可用、簽章無效或網路問題）。';
       }
     });
   });
