@@ -80,7 +80,7 @@ try {
     const releaseDir = join(outputRoot, 'test-v1.5.1');
     const manifestPath = join(releaseDir, 'update-manifest.json');
     const signaturePath = `${manifestPath}.sig`;
-    const assetPath = join(releaseDir, 'MetaReplyPro-v1.5.1.zip');
+    const assetPath = join(releaseDir, JSON.parse(readFileSync(manifestPath, 'utf8')).assetName);
 
     const verified = runNode('updater/release/verify-release.mjs', [
       '--manifest',
