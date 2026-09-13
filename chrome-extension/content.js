@@ -21,38 +21,26 @@ const DEFAULT_SETTINGS = {
 };
 
 // ============================================================
-// Helper functions for matching post titles safely (first 20 chars)
+// Versioned exact bindings. Legacy title keys are retained, never auto-applied.
 // ============================================================
 function getBoundProductId(postTitle) {
-  if (!postTitle || !postProductMapping) return null;
-  const targetPrefix = postTitle.substring(0, 20);
-  for (const [key, value] of Object.entries(postProductMapping)) {
-    if (key.substring(0, 20) === targetPrefix) {
-      return value;
-    }
-  }
-  return null;
+  if (!isStablePostKey(postTitle)) return null;
+  return Object.hasOwn(postProductMapping || {}, postTitle) ? postProductMapping[postTitle] : null;
 }
 
 function setBoundProductId(postTitle, productId) {
-  if (!postTitle) return;
-  const targetPrefix = postTitle.substring(0, 20);
-  for (const key of Object.keys(postProductMapping)) {
-    if (key.substring(0, 20) === targetPrefix) {
-      delete postProductMapping[key];
-    }
-  }
+  if (!isStablePostKey(postTitle)) return;
+  postProductMapping ||= {};
   postProductMapping[postTitle] = productId;
 }
 
 function deleteBoundProductId(postTitle) {
-  if (!postTitle) return;
-  const targetPrefix = postTitle.substring(0, 20);
-  for (const key of Object.keys(postProductMapping)) {
-    if (key.substring(0, 20) === targetPrefix) {
-      delete postProductMapping[key];
-    }
-  }
+  if (!isStablePostKey(postTitle) || !postProductMapping) return;
+  delete postProductMapping[postTitle];
+}
+
+function isStablePostKey(key) {
+  return typeof key === 'string' && /^v2:(facebook|instagram):[0-9]+:[0-9]+(?:_[0-9]+)?$/.test(key);
 }
 
 // ============================================================
@@ -171,70 +159,20 @@ function getPlatform() {
   return 'facebook';
 }
 
-// 取得目前貼文的唯一識別 key
-// asset_id 是 Facebook 粉專 ID（所有貼文相同），不可用
-// 改用：在中間面板 Header 區（上方、左側排除側邊欄）取得貼文標題文字
+// Only bind a selected comment thread with a complete account/post identity.
+// Unknown routes or missing IDs require manual product selection.
 function getPostKey() {
-  const skipTexts = ['加強推廣', '無法加強推廣', 'Boost post', "Can't boost", '收件匣', '發送訊息', '已綁定商品', '綁定商品'];
-
-  // 取得畫面上所有標籤，過濾出合理的標籤
-  const textNodes = Array.from(document.querySelectorAll('*'))
-    .filter(el => {
-      const tag = el.tagName.toLowerCase();
-      if (['script', 'style', 'svg', 'path', 'img', 'button'].includes(tag)) return false;
-      
-      // 必須有文字內容
-      const text = el.textContent?.trim() || '';
-      if (text.length <= 15) return false;
-
-      // 確保不是最外層的巨大容器 (例如 body, main)
-      // 小技巧：看它有沒有太多 DOM 子節點，通常標題的 childElementCount 很少 (例如只有 img 或 span)
-      if (el.childElementCount > 5) return false;
-
-      // 檢查它最深處的文字節點是否夠長，這可以避免拿到那些包含了許多 button 的大容器
-      const hasDirectLongText = Array.from(el.childNodes).some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 5);
-      return hasDirectLongText;
-    });
-
-  const candidates = textNodes
-    .map(el => {
-      const rect = el.getBoundingClientRect();
-      const text = el.textContent?.trim() || '';
-      return { el, rect, text };
-    })
-    .filter(({ rect, text }) =>
-      text.length > 15 &&
-      rect.top > 40 && rect.top < 400 &&   // 限制在頂部 header 區域
-      rect.left > 280 &&                    // 排除左側側邊欄
-      rect.width > 50 &&
-      !skipTexts.some(s => text.includes(s))
-    )
-    .sort((a, b) => a.rect.top - b.rect.top); // 最靠上的優先
-
-  if (candidates.length > 0) {
-    return candidates[0].text.substring(0, 80);
-  }
-
-  // 備用：退回舊版邏輯掃描 span[dir="auto"], div[dir="auto"]
-  const textElements = Array.from(document.querySelectorAll('span[dir="auto"], div[dir="auto"]'));
-  for (const el of textElements) {
-    const text = el.innerText?.trim() || '';
-    if (text.length > 20 && !skipTexts.some(s => text.includes(s))) {
-      return text.substring(0, 80);
-    }
-  }
-
-  // 放棄使用 URL 當主要 Key，因為會包含各種追蹤參數
-  // 嘗試從 URL 取出 selected_item_id
   try {
-    const urlObj = new window.URL(window.location.href);
-    const selectedItemId = urlObj.searchParams.get('selected_item_id');
-    if (selectedItemId) {
-      return 'IG_POST_' + selectedItemId;
-    }
+    const url = new URL(window.location.href);
+    const route = url.pathname.match(/^\/(?:latest\/)?inbox\/(facebook|instagram)\/?$/);
+    if (url.hostname !== 'business.facebook.com' || !route) return null;
+    const accounts = url.searchParams.getAll('asset_id');
+    const posts = url.searchParams.getAll('selected_item_id');
+    if (accounts.length !== 1 || posts.length !== 1) return null;
+    const key = `v2:${route[1]}:${accounts[0]}:${posts[0]}`;
+    return isStablePostKey(key) ? key : null;
   } catch (e) {}
-
-  return window.location.href;
+  return null;
 }
 
 // 向下相容舊版呼叫
@@ -298,7 +236,7 @@ const FB = {
     return name;
   },
 
-  async processComment(block) {
+  async processComment(block, product) {
     console.log('[FB] Processing comment...');
     const settings = getSettings();
 
@@ -382,7 +320,7 @@ const FB = {
       console.log('[FB] 找到私訊輸入框，開始輸入...');
       const prefix = getRandomItem(settings.dmPrefixes);
       const suffix = getRandomItem(settings.dmSuffixes || []);
-      const link = selectedProduct ? selectedProduct.link : '';
+      const link = product ? product.link : '';
       const fullMsg = buildDmMessage(prefix, link, suffix);
 
       await simulateTyping(dmInput, fullMsg);
@@ -478,7 +416,7 @@ const IG = {
     return name;
   },
 
-  async processComment(block) {
+  async processComment(block, product) {
     console.log('[IG] Processing comment...');
     const settings = getSettings();
 
@@ -592,7 +530,7 @@ const IG = {
       console.log('[IG] 開始輸入私訊...');
       const prefix = getRandomItem(settings.dmPrefixes);
       const suffix = getRandomItem(settings.dmSuffixes || []);
-      const link = selectedProduct ? selectedProduct.link : '';
+      const link = product ? product.link : '';
       const fullMsg = buildDmMessage(prefix, link, suffix);
 
       const maxRetries = typeof settings.igDmRetries === 'number' ? settings.igDmRetries : 3;
@@ -710,7 +648,7 @@ function setupPostBindingObserver() {
       const container = btn.parentElement;
       if (!container) continue;
 
-      const postTitle = getPostTitleFromContainer(container);
+      const postTitle = getPostTitleFromContainer(container) || '';
       const existing = container.querySelector('.meta-bind-product-btn');
 
       // 若現有按鈕的 key 與目前貼文不同（FB SPA 切換時 DOM 被複用），先移除
@@ -757,7 +695,11 @@ function showBindingDialog(anchorElement) {
   const oldDialog = document.querySelector('.meta-binding-dialog');
   if (oldDialog) oldDialog.remove();
 
-  const postTitle = anchorElement.dataset.postTitle || getCurrentPostTitle();
+  const postTitle = getPostKey();
+  if (!postTitle) {
+    alert('無法取得完整的粉專與貼文 ID，無法儲存綁定。請在自動回覆選單手動選擇商品。');
+    return;
+  }
   const dialog = document.createElement('div');
   dialog.className = 'meta-binding-dialog';
   dialog.style.cssText = `
@@ -799,10 +741,19 @@ function showBindingDialog(anchorElement) {
 
   dialog.querySelector('#binding-cancel').addEventListener('click', () => dialog.remove());
   dialog.querySelector('#binding-save').addEventListener('click', () => {
+    if (getPostKey() !== postTitle) {
+      alert('貼文已切換，請重新開啟綁定視窗。');
+      dialog.remove();
+      return;
+    }
     const selectedId = dialog.querySelector('#binding-select').value;
     if (selectedId) {
       setBoundProductId(postTitle, selectedId);
       chrome.storage.sync.set({ postProductMapping }, () => {
+        if (chrome.runtime.lastError) {
+          alert('儲存失敗：' + chrome.runtime.lastError.message);
+          return;
+        }
         alert('綁定成功！下次開啟自動回覆時將自動選擇此商品。');
         dialog.remove();
         updateBindButtonStates();
@@ -810,6 +761,10 @@ function showBindingDialog(anchorElement) {
     } else {
       deleteBoundProductId(postTitle);
       chrome.storage.sync.set({ postProductMapping }, () => {
+        if (chrome.runtime.lastError) {
+          alert('儲存失敗：' + chrome.runtime.lastError.message);
+          return;
+        }
         alert('已解除綁定。');
         dialog.remove();
         updateBindButtonStates();
@@ -885,6 +840,7 @@ function applyFloatingButtonVisibility() {
 function updateDropdownContent(dropdown, mainBtn) {
   const platform = getPlatform();
   const postTitle = getCurrentPostTitle();
+  const selectionUrl = window.location.href;
   const boundProductId = getBoundProductId(postTitle);
 
   const platformLabel = platform === 'instagram' ? 'Instagram 留言' : 'Facebook 留言';
@@ -906,6 +862,8 @@ function updateDropdownContent(dropdown, mainBtn) {
     <div class="dropdown-header">
       <h3 style="color:${platformColor};">📌 ${platformLabel}</h3>
       <p>選擇商品後，系統將自動公開回覆並私訊連結</p>
+      ${!postTitle ? '<p>無法識別貼文，請手動確認商品；本次選擇不會儲存為綁定。</p>' : ''}
+      ${Object.keys(postProductMapping || {}).some(key => !isStablePostKey(key)) ? '<p>舊版綁定已保留但不再自動套用，請核對商品並重新綁定。</p>' : ''}
       ${boundProductId ? '<div style="margin-top:4px;font-size:11px;color:#10B981;font-weight:bold;">✨ 已自動載入此貼文綁定的商品</div>' : ''}
     </div>
     <div class="dropdown-list">${productsHtml}</div>
@@ -944,6 +902,12 @@ function updateDropdownContent(dropdown, mainBtn) {
   });
 
   dropdown.querySelector('#meta-auto-reply-start').addEventListener('click', () => {
+    if (getPostKey() !== postTitle || window.location.href !== selectionUrl) {
+      selectedProduct = null;
+      updateDropdownContent(dropdown, mainBtn);
+      alert('貼文或頁面已切換，請重新確認商品。');
+      return;
+    }
     if (!selectedProduct) {
       alert('請先選擇商品！');
       return;
@@ -957,7 +921,9 @@ function updateDropdownContent(dropdown, mainBtn) {
 // MAIN AUTOMATION CONTROLLER
 // ============================================================
 async function startAutomation(platform, mainBtn) {
-  if (isRunning) return;
+  if (isRunning || !selectedProduct) return;
+  // Keep the explicitly selected product fixed throughout this batch.
+  const product = { ...selectedProduct };
   isRunning = true;
 
   const settings = getSettings();
@@ -982,7 +948,7 @@ async function startAutomation(platform, mainBtn) {
     for (let i = 0; i < commentBlocks.length; i++) {
       if (!isRunning) break;
 
-      const success = await module.processComment(commentBlocks[i]);
+      const success = await module.processComment(commentBlocks[i], product);
       if (success) processedCount++;
 
       if (i < commentBlocks.length - 1 && isRunning) {

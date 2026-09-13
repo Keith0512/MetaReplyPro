@@ -172,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
           li.innerHTML = `
             <div style="flex:1;">
               <strong style="color: #4f46e5;font-size:13px;margin-bottom:6px;display:block;word-break:break-all;">${escapeHtml(postTitle)}</strong>
+              ${!/^v2:(facebook|instagram):[0-9]+:[0-9]+(?:_[0-9]+)?$/.test(postTitle) ? '<div style="color:#b45309;font-size:12px;">舊版紀錄（不再自動套用）：請到原貼文核對商品並重新綁定。</div>' : ''}
               <div style="font-size: 14px;color: #334155;margin-bottom:2px;">對應商品：${escapeHtml(productName)}</div>
               <a href="${escapeHtml(productLink)}" target="_blank" style="font-size:12px;color:#64748b;text-decoration:none;">${escapeHtml(productLink)}</a>
             </div>
@@ -281,24 +282,8 @@ document.addEventListener('DOMContentLoaded', () => {
         settings.dmSuffixes.splice(index, 1);
       } else if (type === 'binding') {
         const postTitle = e.target.getAttribute('data-posttitle');
-        // Because escapeHtml might alter some characters unnecessarily if we match directly? 
-        // No, it was encoded, but the DOM stores original if we use attribute usually, but we injected with escapeHtml.
-        // Actually, we should just find matching key. We can unescape HTML manually, or search values.
-        // Let's iterate and safely match.
-        // But data-posttitle will have escaped entity inside it maybe?
-        const decodedTitle = document.createElement('textarea');
-        decodedTitle.innerHTML = postTitle;
-        const rawTitle = decodedTitle.value;
-        if (postProductMapping[rawTitle]) {
-          delete postProductMapping[rawTitle];
-        } else if (postProductMapping[postTitle]) {
-          // Fallback if not escaped
-          delete postProductMapping[postTitle];
-        } else {
-           // Trying to find it by value search
-           const matchKey = Object.keys(postProductMapping).find(k => escapeHtml(k) === postTitle);
-           if (matchKey) delete postProductMapping[matchKey];
-        }
+        // getAttribute already decodes HTML entities; delete only this exact key.
+        delete postProductMapping[postTitle];
       }
       saveData();
       renderAll();
