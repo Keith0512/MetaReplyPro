@@ -152,12 +152,16 @@ try {
 
   const assetName = `${rootName}.zip`;
   const assetPath = join(outputDir, assetName);
-  const zipResult = spawnSync('zip', ['-q', '-X', '-r', assetPath, rootName], {
+  const archiveTool = process.platform === 'win32' ? 'tar' : 'zip';
+  const archiveArgs = process.platform === 'win32'
+    ? ['-a', '-cf', assetPath, rootName]
+    : ['-q', '-X', '-r', assetPath, rootName];
+  const zipResult = spawnSync(archiveTool, archiveArgs, {
     cwd: tempDir,
     encoding: 'utf8',
   });
   if (zipResult.status !== 0) {
-    throw new Error(zipResult.stderr.trim() || '建立 release ZIP 失敗；請確認系統已安裝 zip');
+    throw new Error(zipResult.stderr.trim() || `建立 release ZIP 失敗；請確認系統已安裝 ${archiveTool}`);
   }
 
   const assetBytes = readFileSync(assetPath);

@@ -121,10 +121,14 @@ try {
     writeFileSync(manifestPath, originalManifest);
 
     const originalAsset = readFileSync(assetPath);
-    const listing = spawnSync('/usr/bin/unzip', ['-Z1', assetPath], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
+    const listing = spawnSync(
+      process.platform === 'win32' ? 'tar' : '/usr/bin/unzip',
+      process.platform === 'win32' ? ['-tf', assetPath] : ['-Z1', assetPath],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      },
+    );
     assert(
       listing.status === 0 &&
         listing.stdout.includes('/updater/install-macos.sh') &&
