@@ -4,6 +4,8 @@ MetaReplyPro 是提供 Facebook／Instagram 商務留言回覆功能的 Chrome �
 
 從 1.5.1 起，擴充功能設定頁的「立即更新」同時支援 Windows 與 macOS。兩個系統都會先驗證正式 Release 的簽章、commit、版本及 ZIP 的 SHA-256，驗證失敗就保留舊版。
 
+從 1.5.3 起，按「檢查更新內容」或「立即更新」會先顯示 GitHub 最新正式版本的更新說明；閱讀後按「確認更新」才會啟動安全更新器。1.5.2 的舊介面尚無預覽，升級至 1.5.3 前可先閱讀 GitHub Release 頁的說明。
+
 ## 本機開發
 
 需求：Node.js。

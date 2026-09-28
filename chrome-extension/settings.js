@@ -609,27 +609,88 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- 版本與更新 ---
-// 版本資訊只由本機顯示；遠端 release 必須交給原生更新器驗證簽章，
-// 避免擴充功能直接信任未驗證的 GitHub manifest。
+// GitHub Release 文字僅作更新預覽；實際安裝仍交給原生更新器驗證簽章與雜湊。
 document.addEventListener('DOMContentLoaded', () => {
   const versionEl = document.getElementById('current-version');
   const statusEl = document.getElementById('update-status');
   const checkBtn = document.getElementById('check-update-btn');
+  const runUpdateBtn = document.getElementById('run-update-btn');
+  const preview = document.getElementById('update-preview');
+  const previewTitle = document.getElementById('update-preview-title');
+  const previewNotes = document.getElementById('update-preview-notes');
+  const previewLink = document.getElementById('update-preview-link');
+  const confirmBtn = document.getElementById('confirm-update-btn');
+  const cancelBtn = document.getElementById('cancel-update-btn');
+  const currentVersion = chrome.runtime.getManifest().version;
 
-  versionEl.textContent = chrome.runtime.getManifest().version;
+  versionEl.textContent = currentVersion;
 
-  checkBtn.addEventListener('click', () => {
-    statusEl.textContent = '「立即更新」會先驗證正式版本的簽章與檔案雜湊；若已是最新版，不會替換檔案。';
+  function isNewer(version) {
+    const next = version.split('.').map(Number);
+    const current = currentVersion.split('.').map(Number);
+    for (let index = 0; index < Math.max(next.length, current.length); index += 1) {
+      if ((next[index] || 0) !== (current[index] || 0)) {
+        return (next[index] || 0) > (current[index] || 0);
+      }
+    }
+    return false;
+  }
+
+  async function showUpdatePreview() {
+    checkBtn.disabled = true;
+    runUpdateBtn.disabled = true;
+    confirmBtn.hidden = true;
+    preview.hidden = true;
+    statusEl.textContent = '正在取得最新版本的更新內容…';
+    try {
+      const response = await fetch('https://api.github.com/repos/Keith0512/MetaReplyPro/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json' },
+        cache: 'no-store'
+      });
+      if (!response.ok) throw new Error('release unavailable');
+      const release = await response.json();
+      const version = String(release.tag_name || '').replace(/^v/, '');
+      if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version)) throw new Error('invalid version');
+      previewTitle.textContent = `MetaReplyPro v${version}`;
+      previewNotes.textContent = String(release.body || '').trim() || '此版本未提供更新內容。';
+      previewLink.href = `https://github.com/Keith0512/MetaReplyPro/releases/tag/v${version}`;
+      const newer = isNewer(version);
+      confirmBtn.hidden = !newer;
+      preview.hidden = false;
+      statusEl.textContent = newer
+        ? `請先閱讀 v${version} 的更新內容，再決定是否安裝。`
+        : `目前已是最新版（${currentVersion}）。`;
+    } catch {
+      previewTitle.textContent = '暫時無法取得更新內容';
+      previewNotes.textContent = '請稍後再試，或開啟發布頁查看最新版本與更新說明。';
+      previewLink.href = 'https://github.com/Keith0512/MetaReplyPro/releases';
+      preview.hidden = false;
+      statusEl.textContent = '取得更新內容失敗，尚未開始安裝。';
+    } finally {
+      checkBtn.disabled = false;
+      runUpdateBtn.disabled = false;
+    }
+  }
+
+  checkBtn.addEventListener('click', showUpdatePreview);
+  runUpdateBtn.addEventListener('click', showUpdatePreview);
+  cancelBtn.addEventListener('click', () => {
+    preview.hidden = true;
+    statusEl.textContent = '已取消更新。';
   });
 
   // 「立即更新」透過 Native Messaging 呼叫本機的 update-host（由安裝腳本註冊），
   // host 執行目前作業系統的安全更新器後回報結果，這裡再重新載入擴充功能套用新版。
-  const runUpdateBtn = document.getElementById('run-update-btn');
-  runUpdateBtn.addEventListener('click', () => {
+  confirmBtn.addEventListener('click', () => {
+    preview.hidden = true;
     statusEl.textContent = '正在下載並驗證安全更新，請稍候…';
+    checkBtn.disabled = true;
     runUpdateBtn.disabled = true;
+    confirmBtn.disabled = true;
     chrome.runtime.sendNativeMessage('com.metareplypro.updater', { action: 'update' }, (resp) => {
+      checkBtn.disabled = false;
       runUpdateBtn.disabled = false;
+      confirmBtn.disabled = false;
       if (chrome.runtime.lastError) {
         statusEl.textContent = '無法啟動安全更新程式：請用對應 Windows／macOS 的正式安裝包重新安裝；Windows 也可使用桌面的更新捷徑。';
         return;

@@ -33,7 +33,7 @@ function element(id = '') {
   return node;
 }
 
-function harness(seed = {}) {
+function harness(seed = {}, release = { tag_name: 'v1.5.3', body: '修正設定頁操作。' }) {
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
   const nodes = Object.fromEntries(ids.map(id => [id, element(id)]));
   nodes['general-tab'].dataset.target = 'tab-general';
@@ -44,6 +44,7 @@ function harness(seed = {}) {
   const confirmations = [];
   const reads = [];
   const writes = [];
+  const nativeMessages = [];
   let failNext = false;
   const document = {
     body,
@@ -57,6 +58,8 @@ function harness(seed = {}) {
   };
   const context = vm.createContext({
     document, URL, structuredClone, console,
+    setTimeout: () => 0,
+    fetch: async () => ({ ok: true, json: async () => release }),
     alert: text => alerts.push(text),
     confirm: text => { confirmations.push(text); return true; },
     FileReader: class {
@@ -73,13 +76,19 @@ function harness(seed = {}) {
         },
         onChanged: { addListener() {} }
       },
-      runtime: { getManifest: () => ({ version: '1.5.2' }), sendNativeMessage() {} }
+      runtime: {
+        getManifest: () => ({ version: '1.5.2' }),
+        sendNativeMessage: (_host, message, callback) => {
+          nativeMessages.push(message);
+          callback({ ok: true, updated: true, before: '1.5.2', after: '1.5.3' });
+        }
+      }
     }
   });
   vm.runInContext(source, context);
   ready.forEach(handler => handler());
   return {
-    nodes, body, alerts, confirmations, writes,
+    nodes, body, alerts, confirmations, writes, nativeMessages,
     failSave() { failNext = true; },
     click(id) { return nodes[id].handlers.click({ target: nodes[id] }); },
     bodyClick(type, dataset, action) {
@@ -109,6 +118,28 @@ test('editing and cancelling keeps the stored product and binding until save', a
   await h.click('add-product-btn');
   assert.equal(h.writes.at(-1).products[0].name, '新商品');
   assert.equal(h.writes.at(-1).postProductMapping, undefined);
+});
+
+test('update shows release notes and waits for confirmation before invoking native updater', async () => {
+  const h = harness();
+  await h.click('run-update-btn');
+  assert.equal(h.nodes['update-preview'].hidden, false);
+  assert.match(h.nodes['update-preview-notes'].textContent, /修正設定頁操作/);
+  assert.equal(h.nativeMessages.length, 0);
+  h.click('cancel-update-btn');
+  assert.equal(h.nativeMessages.length, 0);
+  await h.click('check-update-btn');
+  h.click('confirm-update-btn');
+  assert.equal(h.nativeMessages.length, 1);
+  assert.equal(h.nativeMessages[0].action, 'update');
+});
+
+test('latest installed version does not offer an update confirmation', async () => {
+  const h = harness({}, { tag_name: 'v1.5.2', body: '目前版本說明。' });
+  await h.click('run-update-btn');
+  assert.equal(h.nodes['confirm-update-btn'].hidden, true);
+  assert.match(h.nodes['update-status'].textContent, /已是最新版/);
+  assert.equal(h.nativeMessages.length, 0);
 });
 
 test('failed save preserves input and does not show an unsaved product', async () => {

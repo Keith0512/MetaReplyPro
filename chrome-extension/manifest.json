@@ -12,6 +12,7 @@
     "nativeMessaging"
   ],
   "host_permissions": [
+    "https://api.github.com/*",
     "https://business.facebook.com/*",
     "https://www.facebook.com/*"
   ],

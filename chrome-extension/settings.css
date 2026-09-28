@@ -184,6 +184,33 @@ button:disabled {
 .secondary-btn:hover {
   background-color: #f1f5f9;
 }
+.update-preview {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #1e293b;
+}
+.update-preview h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.update-preview p {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  font-size: 14px;
+}
+.update-preview a {
+  color: #3730a3;
+  text-underline-offset: 3px;
+}
+.update-preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
 .sub-section {
   margin-bottom: 32px;
 }

@@ -150,8 +150,17 @@
           <h2>🔄 版本與更新</h2>
           <p>目前版本：<span id="current-version">-</span></p>
           <div class="action-buttons">
-            <button id="check-update-btn" class="secondary-btn">更新說明</button>
-            <button id="run-update-btn">立即更新</button>
+            <button id="check-update-btn" class="secondary-btn" type="button">檢查更新內容</button>
+            <button id="run-update-btn" type="button">立即更新</button>
+          </div>
+          <div id="update-preview" class="update-preview" hidden>
+            <h3 id="update-preview-title"></h3>
+            <p id="update-preview-notes"></p>
+            <a id="update-preview-link" href="https://github.com/Keith0512/MetaReplyPro/releases" target="_blank" rel="noopener noreferrer">查看完整發布說明</a>
+            <div class="update-preview-actions">
+              <button id="confirm-update-btn" type="button">確認更新</button>
+              <button id="cancel-update-btn" class="secondary-btn" type="button">稍後再說</button>
+            </div>
           </div>
           <p id="update-status" role="status" aria-live="polite" style="margin-top: 10px;"></p>
         </section>
