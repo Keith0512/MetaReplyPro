@@ -639,7 +639,7 @@ function updateBindButtonStates() {
 }
 
 function setupPostBindingObserver() {
-  const observer = new MutationObserver(() => {
+  const scanButtons = () => {
     const boostTexts = ['加強推廣', '無法加強推廣', 'Boost post', "Can't boost", 'Boost'];
     const boostBtns = Array.from(document.querySelectorAll('div[role="button"], button'))
       .filter(b => boostTexts.includes(b.innerText?.trim()));
@@ -663,13 +663,15 @@ function setupPostBindingObserver() {
       {
         const isBound = getBoundProductId(postTitle);
 
-        const bindBtn = document.createElement('div');
+        const bindBtn = document.createElement('button');
+        bindBtn.type = 'button';
         bindBtn.className = 'meta-bind-product-btn';
         bindBtn.dataset.postTitle = postTitle;
         bindBtn.textContent = isBound ? '✅ 已綁定商品' : '🔗 綁定商品';
         bindBtn.style.cssText = `
           background-color: ${isBound ? '#6B7280' : '#10B981'};
           color: white;
+          border: none;
           padding: 0 12px;
           border-radius: 6px;
           font-size: 14px;
@@ -687,6 +689,15 @@ function setupPostBindingObserver() {
         container.insertBefore(bindBtn, btn);
       }
     }
+  };
+  let scanTimer = null;
+  scanButtons();
+  const observer = new MutationObserver(() => {
+    if (scanTimer !== null) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = null;
+      scanButtons();
+    }, 200);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
@@ -793,8 +804,11 @@ function injectFloatingButton() {
   const btn = document.createElement('button');
   btn.className = 'meta-auto-reply-btn';
   btn.innerHTML = '🤖 自動回覆';
+  btn.setAttribute('aria-controls', 'meta-auto-reply-dropdown');
+  btn.setAttribute('aria-expanded', 'false');
 
   const dropdown = document.createElement('div');
+  dropdown.id = 'meta-auto-reply-dropdown';
   dropdown.className = 'meta-auto-reply-dropdown';
 
   updateDropdownContent(dropdown, btn);
@@ -812,6 +826,7 @@ function injectFloatingButton() {
 
     const isVisible = dropdown.style.display === 'block';
     dropdown.style.display = isVisible ? 'none' : 'block';
+    btn.setAttribute('aria-expanded', String(!isVisible));
 
     if (!isVisible) {
       const postTitle = getCurrentPostTitle();
@@ -824,7 +839,10 @@ function injectFloatingButton() {
   });
 
   document.addEventListener('click', (e) => {
-    if (!wrapper.contains(e.target)) dropdown.style.display = 'none';
+    if (!wrapper.contains(e.target)) {
+      dropdown.style.display = 'none';
+      btn.setAttribute('aria-expanded', 'false');
+    }
   });
 
   wrapper.appendChild(btn);
@@ -913,6 +931,7 @@ function updateDropdownContent(dropdown, mainBtn) {
       return;
     }
     dropdown.style.display = 'none';
+    mainBtn.setAttribute('aria-expanded', 'false');
     startAutomation(platform, mainBtn);
   });
 }

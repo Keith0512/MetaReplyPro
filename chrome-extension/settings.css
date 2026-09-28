@@ -18,7 +18,7 @@ header h1 {
   margin: 0 0 8px 0;
 }
 .subtitle {
-  color: #64748b;
+  color: #475569;
   margin: 0;
   font-size: 15px;
 }
@@ -46,10 +46,24 @@ header h1 {
 }
 .input-group {
   display: flex;
+  align-items: flex-end;
   gap: 12px;
   margin-bottom: 16px;
 }
-input[type="text"], input[type="number"], textarea {
+.field {
+  flex: 1;
+  min-width: 0;
+}
+.field label {
+  display: block;
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+}
+input[type="text"], input[type="url"], input[type="number"], textarea {
+  box-sizing: border-box;
+  width: 100%;
   flex: 1;
   padding: 10px 14px;
   border: 1px solid #cbd5e1;
@@ -63,7 +77,7 @@ textarea {
   resize: vertical;
   min-height: 40px;
 }
-input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+input[type="text"]:focus, input[type="url"]:focus, input[type="number"]:focus, textarea:focus {
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
@@ -80,6 +94,14 @@ button {
 button:hover {
   background-color: #4338ca;
 }
+button:focus-visible, a:focus-visible {
+  outline: 2px solid #1e293b;
+  outline-offset: 2px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .list {
   list-style: none;
   padding: 0;
@@ -94,6 +116,8 @@ button:hover {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   margin-bottom: 8px;
+  gap: 12px;
+  overflow-wrap: anywhere;
 }
 .list li div {
   overflow: hidden;
@@ -113,7 +137,7 @@ button:hover {
 }
 .delete-btn {
   background-color: transparent;
-  color: #ef4444;
+  color: #b91c1c;
   padding: 8px 12px;
   border-radius: 6px;
 }
@@ -122,7 +146,7 @@ button:hover {
 }
 .edit-btn {
   background-color: transparent;
-  color: #3b82f6;
+  color: #1d4ed8;
   padding: 8px 12px;
   border-radius: 6px;
 }
@@ -137,6 +161,20 @@ button:hover {
   display: flex;
   gap: 12px;
   margin-top: 8px;
+}
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+#save-status:not(:empty) {
+  margin: 12px 0 0;
+  color: #047857;
+  font-size: 14px;
+}
+#save-status.error {
+  color: #b91c1c;
 }
 .secondary-btn {
   background-color: #f8fafc;
@@ -190,7 +228,7 @@ button:hover {
   border: none;
   padding: 12px 24px;
   font-size: 16px;
-  color: #64748b;
+  color: #475569;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   border-radius: 0;
@@ -211,4 +249,16 @@ button:hover {
 }
 .tab-pane.active {
   display: block;
+}
+@media (max-width: 640px) {
+  body { padding: 20px 12px; }
+  .header-row, .input-group { flex-direction: column; align-items: stretch; }
+  .header-actions { flex-wrap: wrap; }
+  .card { padding: 16px; }
+  .delay-group { gap: 12px; }
+  .list li { align-items: flex-start; flex-wrap: wrap; }
+  .action-buttons { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button, .tab-btn, input, textarea { transition: none; }
 }

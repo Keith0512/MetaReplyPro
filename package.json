@@ -9,6 +9,7 @@
     "test:release": "node updater/tests/test-release.mjs",
     "test:macos": "node updater/tests/test-macos.mjs",
     "test:bindings": "node --test tests/post-bindings.test.mjs",
+    "test:settings": "node --test tests/settings.test.mjs",
     "release:build": "node updater/release/build-release.mjs",
     "release:verify": "node updater/release/verify-release.mjs",
     "preview": "vite preview",

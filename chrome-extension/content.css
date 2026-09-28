@@ -1,7 +1,7 @@
 .meta-auto-reply-wrapper {
   position: fixed;
   bottom: 30px;
-  right: 30px;
+  right: clamp(12px, 4vw, 30px);
   display: inline-flex;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   z-index: 9999999;
@@ -29,6 +29,10 @@
   background-color: #4338CA !important;
   transform: translateY(-2px) !important;
 }
+.meta-auto-reply-wrapper button:focus-visible {
+  outline: 2px solid #111827 !important;
+  outline-offset: 3px !important;
+}
 
 .meta-auto-reply-dropdown {
   display: none;
@@ -39,7 +43,8 @@
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
-  width: 320px;
+  width: min(320px, calc(100vw - 24px));
+  box-sizing: border-box;
   z-index: 9999999;
   padding: 16px;
   text-align: left;
@@ -137,4 +142,7 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: bold;
+}
+@media (prefers-reduced-motion: reduce) {
+  .meta-auto-reply-btn, .product-label, .btn-scan { transition: none !important; }
 }

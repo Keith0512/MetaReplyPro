@@ -96,8 +96,32 @@ test('identity ignores tracking, preserves long IDs, and rejects missing or ambi
 });
 
 function element() {
-  return { style: {}, handlers: {}, addEventListener(event, fn) { this.handlers[event] = fn; } };
+  return {
+    style: {}, handlers: {}, attributes: {},
+    addEventListener(event, fn) { this.handlers[event] = fn; },
+    setAttribute(name, value) { this.attributes[name] = value; }
+  };
 }
+
+test('binding observer batches repeated page mutations into one scan', () => {
+  const h = harness();
+  let notify;
+  let scans = 0;
+  const timers = [];
+  h.context.MutationObserver = class {
+    constructor(callback) { notify = callback; }
+    observe() {}
+  };
+  h.context.document.body = {};
+  h.context.document.querySelectorAll = () => { scans++; return []; };
+  h.context.setTimeout = callback => timers.push(callback);
+  h.run('setupPostBindingObserver()');
+  assert.equal(scans, 1);
+  for (let i = 0; i < 50; i++) notify([]);
+  assert.equal(timers.length, 1);
+  timers.shift()();
+  assert.equal(scans, 2);
+});
 
 test('binding dialog refuses unidentified pages and stale saves after navigation', () => {
   const h = harness();
@@ -132,7 +156,9 @@ test('opening the floating menu automatically selects only the exact post bindin
   const click = () => button.handlers.click({ preventDefault() {}, stopPropagation() {} });
   click();
   assert.equal(h.run('selectedProduct.id'), 'A');
+  assert.equal(button.attributes['aria-expanded'], 'true');
   click();
+  assert.equal(button.attributes['aria-expanded'], 'false');
   h.navigate(postUrl('201'));
   click();
   assert.equal(h.run('selectedProduct.id'), 'B');

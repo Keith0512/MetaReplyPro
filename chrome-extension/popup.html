@@ -54,8 +54,8 @@
     }
     .switch {
       position: relative;
-      width: 36px;
-      height: 20px;
+      width: 44px;
+      height: 28px;
     }
     .switch input {
       opacity: 0;
@@ -73,8 +73,8 @@
     .slider::before {
       content: "";
       position: absolute;
-      width: 16px;
-      height: 16px;
+      width: 24px;
+      height: 24px;
       left: 2px;
       top: 2px;
       background-color: white;
@@ -87,18 +87,25 @@
     .switch input:checked + .slider::before {
       transform: translateX(16px);
     }
+    .switch input:focus-visible + .slider {
+      outline: 2px solid #0f172a;
+      outline-offset: 3px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .btn, .slider, .slider::before { transition: none; }
+    }
   </style>
 </head>
 <body>
   <h3>🤖 META AutoReply</h3>
   <p>點擊下方按鈕開啟控制面板，設定您的商品連結與防封鎖回覆範本。</p>
-  <div class="toggle-row">
+  <label class="toggle-row">
     <span>顯示機器人</span>
-    <label class="switch">
+    <span class="switch">
       <input type="checkbox" id="show-bot-toggle">
       <span class="slider"></span>
-    </label>
-  </div>
+    </span>
+  </label>
   <a href="settings.html" target="_blank" class="btn">⚙️ 開啟控制面板</a>
   <script src="popup.js"></script>
 </body>

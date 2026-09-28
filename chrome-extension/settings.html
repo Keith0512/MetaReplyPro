@@ -2,16 +2,18 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>META AutoReply - 控制面板</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <div class="header-row">
         <div>
           <h1>🤖 META AutoReply - 控制面板</h1>
           <p class="subtitle">設定完成後會自動同步至您的 Chrome 瀏覽器，並套用於 Meta 後台。</p>
+          <p id="save-status" role="status" aria-live="polite"></p>
         </div>
         <div class="header-actions">
           <button id="export-btn" class="secondary-btn">匯出設定</button>
@@ -22,20 +24,27 @@
     </header>
     
     <main>
-      <div class="tabs">
-        <button class="tab-btn active" data-target="tab-general">一般設定</button>
-        <button class="tab-btn" data-target="tab-bindings">綁定管理</button>
+      <div class="tabs" role="tablist" aria-label="設定分類">
+        <button id="general-tab" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="tab-general" tabindex="0" data-target="tab-general">一般設定</button>
+        <button id="bindings-tab" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-bindings" tabindex="-1" data-target="tab-bindings">綁定管理</button>
       </div>
 
-      <div id="tab-general" class="tab-pane active">
+      <div id="tab-general" class="tab-pane active" role="tabpanel" aria-labelledby="general-tab" tabindex="0">
         <!-- 商品管理 -->
         <section class="card">
           <h2>📦 商品管理</h2>
           <p>設定您要在私訊中發送的商品連結</p>
           <div class="input-group">
-            <input type="text" id="product-name" placeholder="商品名稱 (例如：地堡充氣帳篷)">
-            <input type="text" id="product-link" placeholder="商品連結 (https://...)">
+            <div class="field">
+              <label for="product-name">商品名稱</label>
+              <input type="text" id="product-name" placeholder="例如：地堡充氣帳篷">
+            </div>
+            <div class="field">
+              <label for="product-link">商品連結</label>
+              <input type="url" id="product-link" placeholder="https://..." inputmode="url">
+            </div>
             <button id="add-product-btn">新增</button>
+            <button id="cancel-product-btn" class="secondary-btn" hidden>取消</button>
           </div>
           <ul id="product-list" class="list"></ul>
         </section>
@@ -48,8 +57,12 @@
           <div class="sub-section">
             <h3>🟢 公開留言回覆範本 (請客戶看私訊)</h3>
             <div class="input-group">
-              <input type="text" id="public-reply-input" placeholder="例如：已私訊，請查看收件匣！">
+              <div class="field">
+                <label for="public-reply-input">公開留言內容</label>
+                <input type="text" id="public-reply-input" placeholder="例如：已私訊，請查看收件匣！">
+              </div>
               <button id="add-public-reply-btn">新增</button>
+              <button id="cancel-public-reply-btn" class="secondary-btn" hidden>取消</button>
             </div>
             <ul id="public-reply-list" class="list"></ul>
           </div>
@@ -57,8 +70,12 @@
           <div class="sub-section">
             <h3>🔵 私訊開頭範本 (系統會自動在後方加上商品連結)</h3>
             <div class="input-group">
-              <input type="text" id="dm-prefix-input" placeholder="例如：您好！這是您詢問的商品連結：">
+              <div class="field">
+                <label for="dm-prefix-input">私訊開頭內容</label>
+                <input type="text" id="dm-prefix-input" placeholder="例如：您好！這是您詢問的商品連結：">
+              </div>
               <button id="add-dm-prefix-btn">新增</button>
+              <button id="cancel-dm-prefix-btn" class="secondary-btn" hidden>取消</button>
             </div>
             <ul id="dm-prefix-list" class="list"></ul>
           </div>
@@ -66,8 +83,12 @@
           <div class="sub-section">
             <h3>🟣 私訊結尾範本 (系統會自動放在商品連結之後)</h3>
             <div class="input-group">
-              <textarea id="dm-suffix-input" placeholder="例如：如果有任何問題歡迎隨時詢問喔！&#10;我們的官方客服為 @hikertribe" rows="3"></textarea>
+              <div class="field">
+                <label for="dm-suffix-input">私訊結尾內容</label>
+                <textarea id="dm-suffix-input" placeholder="例如：如果有任何問題歡迎隨時詢問喔！&#10;我們的官方客服為 @hikertribe" rows="3"></textarea>
+              </div>
               <button id="add-dm-suffix-btn">新增</button>
+              <button id="cancel-dm-suffix-btn" class="secondary-btn" hidden>取消</button>
             </div>
             <ul id="dm-suffix-list" class="list"></ul>
           </div>
@@ -81,12 +102,12 @@
           <h3 style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">Facebook 延遲時間</h3>
           <div class="delay-group">
             <div>
-              <label>最小延遲 (秒)</label>
-              <input type="number" id="fb-min-delay" min="1">
+              <label for="fb-min-delay">最小延遲 (秒)</label>
+              <input type="number" id="fb-min-delay" min="1" step="1">
             </div>
             <div>
-              <label>最大延遲 (秒)</label>
-              <input type="number" id="fb-max-delay" min="1">
+              <label for="fb-max-delay">最大延遲 (秒)</label>
+              <input type="number" id="fb-max-delay" min="1" step="1">
             </div>
           </div>
           <div class="warning">
@@ -96,12 +117,12 @@
           <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">Instagram 延遲時間</h3>
           <div class="delay-group">
             <div>
-              <label>最小延遲 (秒)</label>
-              <input type="number" id="ig-min-delay" min="1">
+              <label for="ig-min-delay">最小延遲 (秒)</label>
+              <input type="number" id="ig-min-delay" min="1" step="1">
             </div>
             <div>
-              <label>最大延遲 (秒)</label>
-              <input type="number" id="ig-max-delay" min="1">
+              <label for="ig-max-delay">最大延遲 (秒)</label>
+              <input type="number" id="ig-max-delay" min="1" step="1">
             </div>
           </div>
           <div class="warning">
@@ -111,12 +132,12 @@
           <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 14px; color: #4b5563;">IG 私訊確認設定</h3>
           <div class="delay-group">
             <div>
-              <label>確認等待時間 (秒)</label>
-              <input type="number" id="ig-dm-wait-time" min="1" value="10">
+              <label for="ig-dm-wait-time">確認等待時間 (秒)</label>
+              <input type="number" id="ig-dm-wait-time" min="1" step="1" value="10">
             </div>
             <div>
-              <label>最高重試次數</label>
-              <input type="number" id="ig-dm-retries" min="0" value="3">
+              <label for="ig-dm-retries">最高重試次數</label>
+              <input type="number" id="ig-dm-retries" min="0" step="1" value="3">
             </div>
           </div>
           <div class="warning">
@@ -129,14 +150,14 @@
           <h2>🔄 版本與更新</h2>
           <p>目前版本：<span id="current-version">-</span></p>
           <div class="action-buttons">
-            <button id="check-update-btn" class="secondary-btn">檢查更新</button>
+            <button id="check-update-btn" class="secondary-btn">更新說明</button>
             <button id="run-update-btn">立即更新</button>
           </div>
-          <p id="update-status" style="margin-top: 10px;"></p>
+          <p id="update-status" role="status" aria-live="polite" style="margin-top: 10px;"></p>
         </section>
       </div>
 
-      <div id="tab-bindings" class="tab-pane">
+      <div id="tab-bindings" class="tab-pane" role="tabpanel" aria-labelledby="bindings-tab" tabindex="0" hidden>
         <!-- 綁定管理 -->
         <section class="card">
           <h2>🔗 貼文綁定管理</h2>
