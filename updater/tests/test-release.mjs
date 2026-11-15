@@ -137,6 +137,13 @@ try {
         listing.stdout.includes('/updater/trusted-update-key.pem'),
       'release ZIP 包含完整 macOS 安裝與更新元件',
     );
+    assert(
+      listing.status === 0 &&
+        ['update-pinned.ps1', 'update-host-pinned.ps1', 'update-host-pinned.bat',
+          'update-macos-pinned.sh', 'native-host-macos-pinned.sh']
+          .every(file => listing.stdout.includes(`/updater/${file}`)),
+      'release ZIP 包含舊版安裝器不會覆寫的新版更新橋接程式',
+    );
     writeFileSync(assetPath, Buffer.concat([originalAsset, Buffer.from('tampered')]));
     const badHash = runNode('updater/release/verify-release.mjs', [
       '--manifest',

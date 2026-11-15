@@ -26,7 +26,8 @@ function New-SignedFixture(
   [string]$PackageVersion = $ReleaseVersion,
   [string]$ReleaseCommit = '1111111111111111111111111111111111111111',
   [string]$PackageCommit = $ReleaseCommit,
-  [string]$HashOverride = ''
+  [string]$HashOverride = '',
+  [switch]$LegacyUpdater
 ) {
   $fixtureDir = Join-Path $root $Name
   $packageRoot = Join-Path $fixtureDir "MetaReplyPro-v$ReleaseVersion"
@@ -46,6 +47,12 @@ function New-SignedFixture(
 
   foreach ($updaterName in @('update.ps1', 'update-host.ps1', 'update-host.bat', 'disable-auto-update.ps1')) {
     Copy-Item (Join-Path $PSScriptRoot "..\$updaterName") (Join-Path $packageUpdaterDir $updaterName)
+  }
+  if (-not $LegacyUpdater) {
+    foreach ($name in @('update.ps1', 'update-host.ps1', 'update-host.bat')) {
+      $pinnedName = $name.Replace('.', '-pinned.')
+      Copy-Item (Join-Path $packageUpdaterDir $name) (Join-Path $packageUpdaterDir $pinnedName)
+    }
   }
   Copy-Item $script:trustedKeyPath (Join-Path $packageUpdaterDir 'trusted-update-key.json')
 
@@ -102,14 +109,45 @@ try {
   } | ConvertTo-Json
   [IO.File]::WriteAllText($trustedKeyPath, $trustedKey, [Text.UTF8Encoding]::new($false))
 
-  # 1. 正確簽章、hash、版本與 commit：允許更新並保留備份。
   $good = New-SignedFixture 'good' '1.1.0'
-  & $updateScript -InstallDir $installDir -ManifestUrl $good.Manifest `
-    -SignatureUrl $good.Signature -TrustedPublicKeyPath $trustedKeyPath -AllowLocalSources
+  $manifestSha256 = Get-Sha256Hex $good.Manifest
+  $previewJson = & $updateScript -InstallDir $installDir -ManifestUrl $good.Manifest `
+    -SignatureUrl $good.Signature -TrustedPublicKeyPath $trustedKeyPath -AllowLocalSources `
+    -ExpectedVersion '1.1.0' -Preview
+  $preview = $previewJson | ConvertFrom-Json
+  Assert ($LASTEXITCODE -eq 0 -and $preview.ok -and $preview.version -eq '1.1.0' -and
+    $preview.manifestSha256 -eq $manifestSha256) '預覽驗證簽章並回傳版本與 manifest SHA-256'
+  Assert ((Get-Content (Join-Path $installDir 'chrome-extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.0.0') '預覽未安裝更新'
+
+  $approval = @{
+    InstallDir = $installDir
+    TrustedPublicKeyPath = $trustedKeyPath
+    AllowLocalSources = $true
+    ExpectedVersion = '1.1.0'
+    ExpectedManifestSha256 = $manifestSha256
+  }
+  $otherVersion = New-SignedFixture 'other-version' '1.2.0'
+  & $updateScript @approval -ManifestUrl $otherVersion.Manifest -SignatureUrl $otherVersion.Signature
+  Assert ($LASTEXITCODE -ne 0) '拒絕其他已簽章版本'
+  $republished = New-SignedFixture 'republished' '1.1.0'
+  & $updateScript @approval -ManifestUrl $republished.Manifest -SignatureUrl $republished.Signature
+  Assert ($LASTEXITCODE -ne 0) '拒絕同版但不同 manifest 的已簽章發布'
+  & $updateScript @approval -ManifestUrl (Join-Path $root 'missing.json') -SignatureUrl $good.Signature
+  Assert ($LASTEXITCODE -ne 0) '找不到已確認的發布時拒絕更新'
+  $legacy = New-SignedFixture 'legacy' '1.1.0' -LegacyUpdater
+  $legacyApproval = $approval.Clone()
+  $legacyApproval.ExpectedManifestSha256 = Get-Sha256Hex $legacy.Manifest
+  & $updateScript @legacyApproval -ManifestUrl $legacy.Manifest -SignatureUrl $legacy.Signature
+  Assert ($LASTEXITCODE -ne 0) '拒絕沒有新版更新器的既有已簽章套件'
+  Assert ((Get-Content (Join-Path $installDir 'chrome-extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.0.0') '拒絕更新時保留舊版'
+
+  # 1. 正確簽章、hash、版本與 commit：允許更新並保留備份。
+  & $updateScript @approval -ManifestUrl $good.Manifest -SignatureUrl $good.Signature
   $newVersion = (Get-Content (Join-Path $installDir 'chrome-extension\manifest.json') -Raw | ConvertFrom-Json).version
   Assert ($LASTEXITCODE -eq 0 -and $newVersion -eq '1.1.0') '有效簽章與 SHA-256 時更新至 1.1.0'
   Assert ((Get-Content (Join-Path $installDir 'chrome-extension\content.js') -Raw).Trim() -eq 'content-good') '套用已驗證的程式檔案'
   Assert (Test-Path (Join-Path $installDir 'chrome-extension.backup\manifest.json')) '更新後保留舊版備份'
+  Assert (Test-Path (Join-Path $installDir 'update-pinned.ps1')) '安裝指定版本更新器'
 
   # 2. 相同版本：驗證 manifest 後不覆蓋本機內容。
   'marker' | Set-Content (Join-Path $installDir 'chrome-extension\content.js') -Encoding utf8
@@ -128,6 +166,10 @@ try {
   & $updateScript -InstallDir $installDir -ManifestUrl $badSignature.Manifest `
     -SignatureUrl $badSignature.Signature -TrustedPublicKeyPath $trustedKeyPath -AllowLocalSources
   Assert ($LASTEXITCODE -ne 0) 'release manifest 簽章錯誤時拒絕更新'
+  & $updateScript -InstallDir $installDir -ManifestUrl $badSignature.Manifest `
+    -SignatureUrl $badSignature.Signature -TrustedPublicKeyPath $trustedKeyPath -AllowLocalSources `
+    -ExpectedVersion '1.2.0' -Preview
+  Assert ($LASTEXITCODE -ne 0) '預覽拒絕錯誤簽章'
   Assert ((Get-Content (Join-Path $installDir 'chrome-extension\content.js') -Raw).Trim() -eq 'marker') '簽章錯誤時保留舊版'
 
   # 4. ZIP hash 不符：簽章正確仍拒絕更新。

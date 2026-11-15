@@ -134,7 +134,9 @@ node updater/release/verify-release.mjs \
 
 建立與版本相同的 GitHub tag／release，並原樣上傳這三個檔案。不要重新壓縮或手動修改 manifest；任何 byte 改變都會讓簽章或 SHA-256 失效。
 
-更新器固定從 GitHub Releases 的 `latest/download` 讀取已簽章 manifest，再依 manifest 下載版本化 asset，不再信任浮動 `main`。Repository 無法匿名讀取時，客戶端只會記錄失敗並保留舊版。
+設定頁會先驗證新版本的 release manifest，再顯示同一發布版本的 GitHub 更新說明。按下確認後，本機更新器只接受該版本和預覽時取得的 manifest SHA-256。若發布檔案無法取得或已變更，請重新檢查並確認更新。舊版使用者首次升級到支援這項功能的版本時，請用已驗證的正式安裝包執行一次對應平台的安裝腳本，才能註冊新版更新橋接程式。
+
+從 Windows 桌面捷徑、排程或直接執行更新腳本時，更新器從 GitHub Releases 的 `latest/download` 讀取已簽章 manifest，再依 manifest 下載版本化 asset。Repository 無法匿名讀取時，客戶端會記錄失敗並保留舊版。
 
 ## 測試
 

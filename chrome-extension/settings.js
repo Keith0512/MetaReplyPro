@@ -17,17 +17,17 @@ function validProductLink(value) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  let settings = {
+  const defaultSettings = {
     fbMinDelay: 15,
     fbMaxDelay: 60,
     igMinDelay: 30,
     igMaxDelay: 60,
     igDmWaitTime: 10,
-    igDmRetries: 3,
     publicReplies: [],
     dmPrefixes: [],
     dmSuffixes: []
   };
+  let settings = { ...defaultSettings };
   let products = [];
   let postProductMapping = {};
   let saveQueue = Promise.resolve();
@@ -57,7 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
     igMinDelay: document.getElementById('ig-min-delay'),
     igMaxDelay: document.getElementById('ig-max-delay'),
     igDmWaitTime: document.getElementById('ig-dm-wait-time'),
-    igDmRetries: document.getElementById('ig-dm-retries'),
     
     bindingList: document.getElementById('binding-list')
   };
@@ -94,31 +93,26 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 讀取 Chrome Storage 資料
-  chrome.storage.sync.get(['settings', 'products', 'postProductMapping'], (data) => {
-    if (data.settings) {
-      settings = Object.assign({}, settings, data.settings);
-      
-      // 舊版相容：將原本的 minDelay, maxDelay 轉為 fb/ig
-      if (settings.minDelay !== undefined) {
-        settings.fbMinDelay = settings.minDelay;
-        settings.igMinDelay = Math.max(30, settings.minDelay); // IG 建議 30 起跳
-        delete settings.minDelay;
-      }
-      if (settings.maxDelay !== undefined) {
-        settings.fbMaxDelay = settings.maxDelay;
-        settings.igMaxDelay = Math.max(60, settings.maxDelay);
-        delete settings.maxDelay;
-      }
-      
-      // 確保設定存在
-      if (settings.fbMinDelay === undefined) settings.fbMinDelay = 15;
-      if (settings.fbMaxDelay === undefined) settings.fbMaxDelay = 60;
-      if (settings.igMinDelay === undefined) settings.igMinDelay = 30;
-      if (settings.igMaxDelay === undefined) settings.igMaxDelay = 60;
-      if (settings.igDmWaitTime === undefined) settings.igDmWaitTime = 10;
-      if (settings.igDmRetries === undefined) settings.igDmRetries = 3;
+  function normalizeSettings(stored) {
+    const next = { ...defaultSettings, ...stored };
+    // 舊版相容：將原本的 minDelay, maxDelay 轉為 fb/ig
+    if (next.minDelay !== undefined) {
+      next.fbMinDelay = next.minDelay;
+      next.igMinDelay = Math.max(30, next.minDelay);
+      delete next.minDelay;
     }
+    if (next.maxDelay !== undefined) {
+      next.fbMaxDelay = next.maxDelay;
+      next.igMaxDelay = Math.max(60, next.maxDelay);
+      delete next.maxDelay;
+    }
+    return next;
+  }
+
+  const storageKeys = ['settings', 'products', 'postProductMapping'];
+  chrome.storage.sync.get(storageKeys, (data) => {
+    if (!data) return;
+    settings = normalizeSettings(data.settings);
     if (data.products) products = data.products;
     if (data.postProductMapping) postProductMapping = data.postProductMapping;
     renderAll();
@@ -132,26 +126,28 @@ document.addEventListener('DOMContentLoaded', () => {
   // 循序儲存，避免連續操作以較舊的資料覆蓋較新的資料。
   function saveData(change, onSaved) {
     const operation = saveQueue.then(async () => {
-      let next;
       try {
-        const current = {
-          settings: structuredClone(settings),
-          products: structuredClone(products),
-          postProductMapping: structuredClone(postProductMapping)
-        };
-        next = structuredClone(current);
-        change(next);
-        const changed = Object.fromEntries(Object.keys(next)
-          .filter(key => JSON.stringify(next[key]) !== JSON.stringify(current[key]))
-          .map(key => [key, next[key]]));
-        if (Object.keys(changed).length) await chrome.storage.sync.set(changed);
+        await navigator.locks.request('meta-reply-sync-storage', async () => {
+          const stored = await chrome.storage.sync.get(storageKeys);
+          const current = {
+            settings: normalizeSettings(stored.settings),
+            products: stored.products || [],
+            postProductMapping: stored.postProductMapping || {}
+          };
+          const next = structuredClone(current);
+          change(next);
+          const changed = Object.fromEntries(Object.keys(next)
+            .filter(key => JSON.stringify(next[key]) !== JSON.stringify(current[key]))
+            .map(key => [key, next[key]]));
+          if (Object.keys(changed).length) await chrome.storage.sync.set(changed);
+          settings = next.settings;
+          products = next.products;
+          postProductMapping = next.postProductMapping;
+        });
       } catch (err) {
         showSaveStatus('儲存失敗，變更尚未套用。請重試；若持續失敗，請檢查 Chrome 同步容量或先匯出備份。', true);
         return false;
       }
-      settings = next.settings;
-      products = next.products;
-      postProductMapping = next.postProductMapping;
       renderAll();
       if (onSaved) onSaved();
       showSaveStatus('已儲存並同步至 Chrome。');
@@ -215,7 +211,6 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.igMinDelay.value = settings.igMinDelay;
     elements.igMaxDelay.value = settings.igMaxDelay;
     elements.igDmWaitTime.value = settings.igDmWaitTime;
-    elements.igDmRetries.value = settings.igDmRetries;
 
     // 渲染綁定清單
     if (elements.bindingList) {
@@ -327,17 +322,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const delayFields = [
-    ['fbMinDelay', elements.fbMinDelay, 1], ['fbMaxDelay', elements.fbMaxDelay, 1],
-    ['igMinDelay', elements.igMinDelay, 1], ['igMaxDelay', elements.igMaxDelay, 1],
-    ['igDmWaitTime', elements.igDmWaitTime, 1], ['igDmRetries', elements.igDmRetries, 0]
+    ['fbMinDelay', elements.fbMinDelay], ['fbMaxDelay', elements.fbMaxDelay],
+    ['igMinDelay', elements.igMinDelay], ['igMaxDelay', elements.igMaxDelay],
+    ['igDmWaitTime', elements.igDmWaitTime]
   ];
-  delayFields.forEach(([key, input, minimum]) => {
+  delayFields.forEach(([key, input]) => {
     input.addEventListener('input', () => input.setCustomValidity(''));
     input.addEventListener('change', () => {
       const value = Number(input.value);
       const candidate = { ...settings, [key]: value };
       let message = '';
-      if (!input.value.trim() || !Number.isInteger(value) || value < minimum) message = `請輸入不小於 ${minimum} 的整數。`;
+      if (!input.value.trim() || !Number.isInteger(value) || value < 1) message = '請輸入不小於 1 的整數。';
       else if (candidate.fbMinDelay > candidate.fbMaxDelay || candidate.igMinDelay > candidate.igMaxDelay) {
         message = '最小延遲不可大於最大延遲。';
       }
@@ -426,23 +421,22 @@ document.addEventListener('DOMContentLoaded', () => {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
-  function validateBackup(data) {
+  function validateBackup(data, current = { settings, products, postProductMapping }) {
     if (!isRecord(data) || !['settings', 'products', 'postProductMapping'].some(key => Object.hasOwn(data, key))) {
       throw new Error('檔案沒有可匯入的設定。');
     }
     if (Object.hasOwn(data, 'settings') && !isRecord(data.settings)) throw new Error('回覆設定格式錯誤。');
-    const nextSettings = Object.hasOwn(data, 'settings') ? { ...settings, ...data.settings } : settings;
-    const nextProducts = Object.hasOwn(data, 'products') ? data.products : products;
-    const nextMapping = Object.hasOwn(data, 'postProductMapping') ? data.postProductMapping : postProductMapping;
+    const nextSettings = Object.hasOwn(data, 'settings') ? { ...current.settings, ...data.settings } : current.settings;
+    const nextProducts = Object.hasOwn(data, 'products') ? data.products : current.products;
+    const nextMapping = Object.hasOwn(data, 'postProductMapping') ? data.postProductMapping : current.postProductMapping;
     if (!isRecord(nextSettings)) throw new Error('回覆設定格式錯誤。');
     for (const key of ['publicReplies', 'dmPrefixes', 'dmSuffixes']) {
       if (!Array.isArray(nextSettings[key]) || !nextSettings[key].every(value => typeof value === 'string' && value.trim())) {
         throw new Error('回覆範本格式錯誤。');
       }
     }
-    for (const key of ['fbMinDelay', 'fbMaxDelay', 'igMinDelay', 'igMaxDelay', 'igDmWaitTime', 'igDmRetries']) {
-      const minimum = key === 'igDmRetries' ? 0 : 1;
-      if (!Number.isInteger(nextSettings[key]) || nextSettings[key] < minimum) throw new Error('延遲或重試次數格式錯誤。');
+    for (const key of ['fbMinDelay', 'fbMaxDelay', 'igMinDelay', 'igMaxDelay', 'igDmWaitTime']) {
+      if (!Number.isInteger(nextSettings[key]) || nextSettings[key] < 1) throw new Error('延遲時間格式錯誤。');
     }
     if (nextSettings.fbMinDelay > nextSettings.fbMaxDelay || nextSettings.igMinDelay > nextSettings.igMaxDelay) {
       throw new Error('最小延遲不可大於最大延遲。');
@@ -501,7 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.hasOwn(importedData, 'postProductMapping') && `${Object.keys(next.postProductMapping).length} 筆貼文綁定`
           ].filter(Boolean);
           if (!confirm(`匯入將取代目前的${sections.join('、')}。確定繼續？`)) return;
-          const saved = await saveData(draft => Object.assign(draft, next));
+          const saved = await saveData(draft => Object.assign(draft, validateBackup(importedData, draft)));
           if (saved) alert('設定匯入成功！');
         } catch (err) {
           alert(`匯入失敗：${err.message}`);
@@ -571,7 +565,11 @@ document.addEventListener('DOMContentLoaded', () => {
           const replacements = imported.filter(([key]) => Object.hasOwn(postProductMapping, key)).length;
           if (!confirm(`將匯入 ${imported.length} 筆貼文綁定，其中 ${replacements} 筆會覆寫現有綁定。確定繼續？`)) return;
           const saved = await saveData(draft => {
-            for (const [key, id] of imported) draft.postProductMapping[key] = id;
+            const productIds = new Set(draft.products.map(product => product.id));
+            for (const [key, id] of imported) {
+              if (!productIds.has(id)) throw new Error('貼文綁定包含不存在的商品。');
+              draft.postProductMapping[key] = id;
+            }
           });
           if (saved) alert(`綁定匯入成功！共匯入或更新了 ${imported.length} 筆綁定紀錄。`);
         } catch (err) {
@@ -590,7 +588,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (namespace === 'sync') {
       let changed = false;
       if (changes.settings) {
-        settings = changes.settings.newValue || {};
+        settings = normalizeSettings(changes.settings.newValue);
         changed = true;
       }
       if (changes.products) {
@@ -609,7 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- 版本與更新 ---
-// GitHub Release 文字僅作更新預覽；實際安裝仍交給原生更新器驗證簽章與雜湊。
+// GitHub Release 提供說明，本機更新器在預覽和安裝時驗證該版本的簽章。
 document.addEventListener('DOMContentLoaded', () => {
   const versionEl = document.getElementById('current-version');
   const statusEl = document.getElementById('update-status');
@@ -622,8 +620,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const confirmBtn = document.getElementById('confirm-update-btn');
   const cancelBtn = document.getElementById('cancel-update-btn');
   const currentVersion = chrome.runtime.getManifest().version;
+  let pendingRelease = null;
 
   versionEl.textContent = currentVersion;
+
+  function requestUpdateHost(message) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendNativeMessage('com.metareplypro.updater.pinned', message, response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('請先用對應 Windows／macOS 的已驗證正式安裝包重新安裝一次，再從設定頁更新'));
+        } else if (response?.ok) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.message || '無法驗證已簽章的發布版本'));
+        }
+      });
+    });
+  }
 
   function isNewer(version) {
     const next = version.split('.').map(Number);
@@ -637,6 +650,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function showUpdatePreview() {
+    if (checkBtn.disabled) return;
+    pendingRelease = null;
     checkBtn.disabled = true;
     runUpdateBtn.disabled = true;
     confirmBtn.hidden = true;
@@ -647,25 +662,37 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { Accept: 'application/vnd.github+json' },
         cache: 'no-store'
       });
-      if (!response.ok) throw new Error('release unavailable');
+      if (!response.ok) throw new Error('無法取得 GitHub 發布資料');
       const release = await response.json();
-      const version = String(release.tag_name || '').replace(/^v/, '');
-      if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version)) throw new Error('invalid version');
+      const version = /^v(\d+\.\d+\.\d+(?:\.\d+)?)$/.exec(release.tag_name)?.[1];
+      if (!version) throw new Error('發布版本格式無效');
+      const newer = isNewer(version);
+      if (newer) {
+        const verified = await requestUpdateHost({ action: 'preview', version });
+        if (verified.version !== version || !/^[a-f0-9]{64}$/.test(verified.manifestSha256)) {
+          throw new Error('發布資料與已驗證的版本不符');
+        }
+        const listedDigest = release.assets?.find(asset => asset.name === 'update-manifest.json')?.digest;
+        if (listedDigest && listedDigest !== `sha256:${verified.manifestSha256}`) {
+          throw new Error('此版本的發布資料已變更，請重新檢查更新');
+        }
+        pendingRelease = { version, manifestSha256: verified.manifestSha256 };
+      }
+
       previewTitle.textContent = `MetaReplyPro v${version}`;
       previewNotes.textContent = String(release.body || '').trim() || '此版本未提供更新內容。';
       previewLink.href = `https://github.com/Keith0512/MetaReplyPro/releases/tag/v${version}`;
-      const newer = isNewer(version);
       confirmBtn.hidden = !newer;
       preview.hidden = false;
       statusEl.textContent = newer
         ? `請先閱讀 v${version} 的更新內容，再決定是否安裝。`
         : `目前已是最新版（${currentVersion}）。`;
-    } catch {
+    } catch (error) {
       previewTitle.textContent = '暫時無法取得更新內容';
       previewNotes.textContent = '請稍後再試，或開啟發布頁查看最新版本與更新說明。';
       previewLink.href = 'https://github.com/Keith0512/MetaReplyPro/releases';
       preview.hidden = false;
-      statusEl.textContent = '取得更新內容失敗，尚未開始安裝。';
+      statusEl.textContent = `取得更新內容失敗：${error.message}`;
     } finally {
       checkBtn.disabled = false;
       runUpdateBtn.disabled = false;
@@ -675,34 +702,34 @@ document.addEventListener('DOMContentLoaded', () => {
   checkBtn.addEventListener('click', showUpdatePreview);
   runUpdateBtn.addEventListener('click', showUpdatePreview);
   cancelBtn.addEventListener('click', () => {
+    pendingRelease = null;
     preview.hidden = true;
     statusEl.textContent = '已取消更新。';
   });
 
-  // 「立即更新」透過 Native Messaging 呼叫本機的 update-host（由安裝腳本註冊），
-  // host 執行目前作業系統的安全更新器後回報結果，這裡再重新載入擴充功能套用新版。
-  confirmBtn.addEventListener('click', () => {
+  confirmBtn.addEventListener('click', async () => {
+    if (!pendingRelease) return;
+    const confirmedRelease = pendingRelease;
+    pendingRelease = null;
     preview.hidden = true;
     statusEl.textContent = '正在下載並驗證安全更新，請稍候…';
     checkBtn.disabled = true;
     runUpdateBtn.disabled = true;
     confirmBtn.disabled = true;
-    chrome.runtime.sendNativeMessage('com.metareplypro.updater', { action: 'update' }, (resp) => {
+    try {
+      const resp = await requestUpdateHost({ action: 'update', ...confirmedRelease });
+      if (resp.updated) {
+        statusEl.textContent = `更新完成（${resp.before} → ${resp.after}），3 秒後套用新版；套用後請重新整理此頁。`;
+        setTimeout(() => chrome.runtime.reload(), 3000);
+      } else {
+        statusEl.textContent = `目前已安裝 ${resp.after || resp.before}。`;
+      }
+    } catch (error) {
+      statusEl.textContent = `更新失敗：${error.message}。請重新檢查更新並確認版本。`;
+    } finally {
       checkBtn.disabled = false;
       runUpdateBtn.disabled = false;
       confirmBtn.disabled = false;
-      if (chrome.runtime.lastError) {
-        statusEl.textContent = '無法啟動安全更新程式：請用對應 Windows／macOS 的正式安裝包重新安裝；Windows 也可使用桌面的更新捷徑。';
-        return;
-      }
-      if (resp && resp.ok && resp.updated) {
-        statusEl.textContent = `更新完成（${resp.before} → ${resp.after}），3 秒後套用新版；套用後請重新整理此頁。`;
-        setTimeout(() => chrome.runtime.reload(), 3000);
-      } else if (resp && resp.ok) {
-        statusEl.textContent = `已是最新版（${resp.after || resp.before}）。`;
-      } else {
-        statusEl.textContent = (resp && resp.message) ? `更新失敗：${resp.message}` : '更新失敗（release 不可用、簽章無效或網路問題）。';
-      }
-    });
+    }
   });
 });

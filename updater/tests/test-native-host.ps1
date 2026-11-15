@@ -10,75 +10,107 @@ function Assert($condition, $name) {
 }
 
 # 解析 host 回應：回傳 payload 物件；框架錯誤回 $null
-function Read-HostResponse([string]$OutFile) {
-  $bytes = [IO.File]::ReadAllBytes($OutFile)
+function Read-HostResponse([byte[]]$Bytes) {
   if ($bytes.Length -lt 4) { return $null }
   $len = [BitConverter]::ToInt32($bytes, 0)
   if ($len -ne ($bytes.Length - 4)) { return $null }
   return ([Text.Encoding]::UTF8.GetString($bytes, 4, $len) | ConvertFrom-Json)
 }
 
+function New-HostFrame([hashtable]$Message) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes(($Message | ConvertTo-Json -Compress))
+  [BitConverter]::GetBytes([int]$bytes.Length) + $bytes
+}
+
+function Invoke-Host([string]$Directory, [byte[]]$Frame) {
+  $start = New-Object Diagnostics.ProcessStartInfo
+  $start.FileName = 'powershell.exe'
+  $hostPath = Join-Path $Directory 'update-host-pinned.ps1'
+  $start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$hostPath`""
+  $start.UseShellExecute = $false
+  $start.RedirectStandardInput = $true
+  $start.RedirectStandardOutput = $true
+  $process = [Diagnostics.Process]::Start($start)
+  $output = New-Object IO.MemoryStream
+  try {
+    $readOutput = $process.StandardOutput.BaseStream.CopyToAsync($output)
+    $process.StandardInput.BaseStream.Write($Frame, 0, $Frame.Length)
+    $process.StandardInput.Close()
+    $process.WaitForExit()
+    $readOutput.GetAwaiter().GetResult()
+    Read-HostResponse ($output.ToArray())
+  } finally {
+    $output.Dispose()
+    $process.Dispose()
+  }
+}
+
 # 建立測試環境：host 腳本 + stub update.ps1 + 假 manifest
 function New-HostFixture([string]$Name, [string]$StubBody) {
   $dir = Join-Path $root $Name
   New-Item -ItemType Directory -Path (Join-Path $dir 'chrome-extension') -Force | Out-Null
-  Copy-Item (Join-Path $PSScriptRoot '..\update-host.ps1') (Join-Path $dir 'update-host.ps1')
+  Copy-Item (Join-Path $PSScriptRoot '..\update-host.ps1') (Join-Path $dir 'update-host-pinned.ps1')
   '{ "version": "1.0.0" }' | Set-Content (Join-Path $dir 'chrome-extension\manifest.json') -Encoding utf8
-  $StubBody | Set-Content (Join-Path $dir 'update.ps1') -Encoding utf8
+  $StubBody | Set-Content (Join-Path $dir 'update-pinned.ps1') -Encoding utf8
+  @'
+'called' | Set-Content (Join-Path $PSScriptRoot 'legacy-called.txt')
+exit 1
+'@ | Set-Content (Join-Path $dir 'update.ps1') -Encoding utf8
   return $dir
 }
 
-# Chrome 送來的訊息：長度前綴 + {"action":"update"}
-$msgJson = '{"action":"update"}'
-$msgBytes = [Text.Encoding]::UTF8.GetBytes($msgJson)
-$msgFile = Join-Path $root 'msg.bin'
-New-Item -ItemType Directory -Path $root -Force | Out-Null
-$frame = [BitConverter]::GetBytes([int]$msgBytes.Length) + $msgBytes
-[IO.File]::WriteAllBytes($msgFile, $frame)
-
-# --- 測試 1：更新成功（stub 改寫 manifest 版本並 exit 0）→ ok=true, updated=true
+$manifestSha256 = 'a' * 64
+$update = New-HostFrame @{ action = 'update'; version = '9.9.9'; manifestSha256 = $manifestSha256 }
 $stubOk = @'
+param([string]$InstallDir, [string]$ExpectedVersion, [string]$ExpectedManifestSha256, [switch]$Preview)
+if ($InstallDir -ne $PSScriptRoot -or $ExpectedVersion -ne '9.9.9') { exit 1 }
+if ($Preview) {
+  @{ ok = $true; version = $ExpectedVersion; manifestSha256 = 'a' * 64 } | ConvertTo-Json -Compress
+  exit 0
+}
+if ($ExpectedManifestSha256 -ne ('a' * 64)) { exit 1 }
 Set-Content -Path (Join-Path $PSScriptRoot 'chrome-extension\manifest.json') -Value '{ "version": "9.9.9" }' -Encoding utf8
 'called' | Set-Content (Join-Path $PSScriptRoot 'stub-called.txt')
 exit 0
 '@
-$dir = New-HostFixture 'ok' $stubOk
-$outFile = Join-Path $dir 'out.bin'
-cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File `"$dir\update-host.ps1`" < `"$msgFile`" > `"$outFile`""
-$resp = Read-HostResponse $outFile
-Assert (Test-Path (Join-Path $dir 'stub-called.txt')) 'host 有執行 update.ps1'
-Assert ($null -ne $resp) '回應符合 4-byte 長度前綴框架'
-Assert ($resp -and $resp.ok -eq $true) '更新成功時 ok=true'
-Assert ($resp -and $resp.updated -eq $true) '版本有變時 updated=true'
-Assert ($resp -and $resp.before -eq '1.0.0' -and $resp.after -eq '9.9.9') '回報 before/after 版本'
+try {
+  $dir = New-HostFixture 'ok' $stubOk
+  $resp = Invoke-Host $dir (New-HostFrame @{ action = 'preview'; version = '9.9.9' })
+  Assert ($resp.ok -eq $true -and $resp.version -eq '9.9.9' -and
+    $resp.manifestSha256 -eq $manifestSha256) 'host 回傳驗證的預覽資料'
+  Assert (-not (Test-Path (Join-Path $dir 'stub-called.txt'))) '預覽未安裝更新'
 
-# --- 測試 2：已是最新（stub 不改版本、exit 0）→ ok=true, updated=false
-$dir = New-HostFixture 'latest' 'exit 0'
-$outFile = Join-Path $dir 'out.bin'
-cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File `"$dir\update-host.ps1`" < `"$msgFile`" > `"$outFile`""
-$resp = Read-HostResponse $outFile
-Assert ($resp -and $resp.ok -eq $true -and $resp.updated -eq $false) '無新版時 ok=true, updated=false'
+  $resp = Invoke-Host $dir $update
+  Assert (Test-Path (Join-Path $dir 'stub-called.txt')) 'host 傳入確認過的版本與 manifest SHA-256'
+  Assert ($null -ne $resp) '回應符合 4-byte 長度前綴框架'
+  Assert ($resp.ok -eq $true -and $resp.updated -eq $true) '更新成功時 updated=true'
+  Assert ($resp.before -eq '1.0.0' -and $resp.after -eq '9.9.9') '回報 before/after 版本'
+  Assert (-not (Test-Path (Join-Path $dir 'legacy-called.txt'))) 'host 不會呼叫舊版更新器'
 
-# --- 測試 3：更新失敗（stub exit 1）→ ok=false
-$dir = New-HostFixture 'fail' 'exit 1'
-$outFile = Join-Path $dir 'out.bin'
-cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File `"$dir\update-host.ps1`" < `"$msgFile`" > `"$outFile`""
-$resp = Read-HostResponse $outFile
-Assert ($resp -and $resp.ok -eq $false) '更新失敗時 ok=false'
+  $resp = Invoke-Host (New-HostFixture 'latest' 'exit 0') $update
+  Assert ($resp.ok -eq $true -and $resp.updated -eq $false) '無新版時 updated=false'
 
-# --- 測試 4：stdin 直接 EOF（讀不到訊息）也要能運作並回應
-$dir = New-HostFixture 'eof' $stubOk
-$outFile = Join-Path $dir 'out.bin'
-$emptyFile = Join-Path $root 'empty.bin'
-[IO.File]::WriteAllBytes($emptyFile, @())
-cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File `"$dir\update-host.ps1`" < `"$emptyFile`" > `"$outFile`""
-$resp = Read-HostResponse $outFile
-Assert ($resp -and $resp.ok -eq $true) '讀不到訊息時仍執行並正常回應'
+  $resp = Invoke-Host (New-HostFixture 'fail' 'exit 1') $update
+  Assert ($resp.ok -eq $false) '更新失敗時 ok=false'
 
-# --- 測試 5：update-host.ps1 檔案保留 UTF-8 BOM（-File 路徑的中文需要）
-$b = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '..\update-host.ps1'))
-Assert ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) 'update-host.ps1 保留 UTF-8 BOM'
+  $dir = New-HostFixture 'rejected' @'
+'called' | Set-Content (Join-Path $PSScriptRoot 'stub-called.txt')
+exit 0
+'@
+  $resp = Invoke-Host $dir @()
+  Assert ($resp.ok -eq $false) '讀不到訊息時拒絕更新'
+  $resp = Invoke-Host $dir (New-HostFrame @{ action = 'update' })
+  Assert ($resp.ok -eq $false) '拒絕舊版未確認的更新請求'
+  $resp = Invoke-Host $dir (New-HostFrame @{ action = 'update'; version = '9.9.9' })
+  Assert ($resp.ok -eq $false) '拒絕缺少 manifest SHA-256 的更新'
+  $resp = Invoke-Host $dir (New-HostFrame @{ action = 'unexpected'; version = '9.9.9' })
+  Assert ($resp.ok -eq $false) '拒絕未知的更新動作'
+  Assert (-not (Test-Path (Join-Path $dir 'stub-called.txt'))) '無效請求未呼叫更新器'
 
-Remove-Item $root -Recurse -Force
+  $b = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '..\update-host.ps1'))
+  Assert ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) 'update-host.ps1 保留 UTF-8 BOM'
+} finally {
+  if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+}
 if ($script:failed) { Write-Host "`n有測試失敗" -ForegroundColor Red; exit 1 }
 else { Write-Host "`n全部通過"; exit 0 }

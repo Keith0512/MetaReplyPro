@@ -53,6 +53,8 @@ SOURCE_EXTENSION_MANIFEST="$SOURCE_EXTENSION/manifest.json"
 required_updater_files=(
   update-macos.sh
   native-host-macos.sh
+  update-macos-pinned.sh
+  native-host-macos-pinned.sh
   trusted-update-key.pem
   trusted-update-key.json
 )
@@ -95,7 +97,9 @@ for name in "${required_updater_files[@]}"; do
 done
 /bin/chmod 755 \
   "$INSTALL_DIR/update-macos.sh.installing.$$" \
-  "$INSTALL_DIR/native-host-macos.sh.installing.$$" ||
+  "$INSTALL_DIR/native-host-macos.sh.installing.$$" \
+  "$INSTALL_DIR/update-macos-pinned.sh.installing.$$" \
+  "$INSTALL_DIR/native-host-macos-pinned.sh.installing.$$" ||
   fail '無法設定更新器執行權限'
 /bin/chmod 644 \
   "$INSTALL_DIR/trusted-update-key.pem.installing.$$" \
@@ -125,17 +129,18 @@ done
 
 /bin/mkdir -p "$NATIVE_HOST_DIR" ||
   fail '無法建立 Chrome Native Messaging 目錄'
-host_manifest="$NATIVE_HOST_DIR/com.metareplypro.updater.json"
-host_manifest_stage="$NATIVE_HOST_DIR/com.metareplypro.updater.installing.$$.json"
-host_manifest_plist="$NATIVE_HOST_DIR/com.metareplypro.updater.installing.$$.plist"
+host_name='com.metareplypro.updater.pinned'
+host_manifest="$NATIVE_HOST_DIR/$host_name.json"
+host_manifest_stage="$NATIVE_HOST_DIR/$host_name.installing.$$.json"
+host_manifest_plist="$NATIVE_HOST_DIR/$host_name.installing.$$.plist"
 
 /usr/bin/plutil -create xml1 "$host_manifest_plist" ||
   fail '無法建立 Native Messaging 設定'
-/usr/bin/plutil -insert name -string 'com.metareplypro.updater' "$host_manifest_plist" ||
+/usr/bin/plutil -insert name -string "$host_name" "$host_manifest_plist" ||
   fail '無法設定 Native Messaging 名稱'
 /usr/bin/plutil -insert description -string 'MetaReplyPro signed release updater' "$host_manifest_plist" ||
   fail '無法設定 Native Messaging 說明'
-/usr/bin/plutil -insert path -string "$INSTALL_DIR/native-host-macos.sh" "$host_manifest_plist" ||
+/usr/bin/plutil -insert path -string "$INSTALL_DIR/native-host-macos-pinned.sh" "$host_manifest_plist" ||
   fail '無法設定 Native Messaging 路徑'
 /usr/bin/plutil -insert type -string 'stdio' "$host_manifest_plist" ||
   fail '無法設定 Native Messaging 類型'

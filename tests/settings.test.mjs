@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../chrome-extension/settings.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../chrome-extension/settings.html', import.meta.url), 'utf8');
+const releaseSha256 = 'a'.repeat(64);
 
 function element(id = '') {
   const handlers = {};
@@ -46,6 +47,10 @@ function harness(seed = {}, release = { tag_name: 'v1.5.3', body: '修正設定�
   const writes = [];
   const nativeMessages = [];
   let failNext = false;
+  let pinnedHostAvailable = true;
+  let verifiedVersion;
+  let canInstallPinnedRelease = true;
+  let stored = structuredClone(seed);
   const document = {
     body,
     getElementById: id => nodes[id],
@@ -58,6 +63,7 @@ function harness(seed = {}, release = { tag_name: 'v1.5.3', body: '修正設定�
   };
   const context = vm.createContext({
     document, URL, structuredClone, console,
+    navigator: { locks: { request: async (_name, work) => work() } },
     setTimeout: () => 0,
     fetch: async () => ({ ok: true, json: async () => release }),
     alert: text => alerts.push(text),
@@ -68,19 +74,34 @@ function harness(seed = {}, release = { tag_name: 'v1.5.3', body: '修正設定�
     chrome: {
       storage: {
         sync: {
-          get: (_keys, callback) => callback(structuredClone(seed)),
+          get: async (_keys, callback) => {
+            const data = structuredClone(stored);
+            if (callback) callback(data);
+            else return data;
+          },
           set: async value => {
             if (failNext) { failNext = false; throw new Error('quota'); }
             writes.push(structuredClone(value));
+            stored = { ...stored, ...structuredClone(value) };
           }
         },
         onChanged: { addListener() {} }
       },
       runtime: {
         getManifest: () => ({ version: '1.5.2' }),
-        sendNativeMessage: (_host, message, callback) => {
-          nativeMessages.push(message);
-          callback({ ok: true, updated: true, before: '1.5.2', after: '1.5.3' });
+        sendNativeMessage(host, message, callback) {
+          nativeMessages.push({ host, message: { ...message } });
+          if (!pinnedHostAvailable) {
+            this.lastError = { message: 'Native messaging host not found' };
+            callback();
+            delete this.lastError;
+          } else if (message.action === 'preview') {
+            callback({ ok: true, version: verifiedVersion ?? message.version, manifestSha256: releaseSha256 });
+          } else if (canInstallPinnedRelease) {
+            callback({ ok: true, updated: true, before: '1.5.2', after: message.version });
+          } else {
+            callback({ ok: false, message: '無法驗證或安裝已確認的發布版本' });
+          }
         }
       }
     }
@@ -90,6 +111,11 @@ function harness(seed = {}, release = { tag_name: 'v1.5.3', body: '修正設定�
   return {
     nodes, body, alerts, confirmations, writes, nativeMessages,
     failSave() { failNext = true; },
+    publish(next) { release = next; },
+    removeHost() { pinnedHostAvailable = false; },
+    returnDifferentVersion(version) { verifiedVersion = version; },
+    removeRelease() { canInstallPinnedRelease = false; },
+    remoteWrite(value) { stored = { ...stored, ...structuredClone(value) }; },
     click(id) { return nodes[id].handlers.click({ target: nodes[id] }); },
     bodyClick(type, dataset, action) {
       const target = { dataset, classList: { contains: name => name === action } };
@@ -120,18 +146,71 @@ test('editing and cancelling keeps the stored product and binding until save', a
   assert.equal(h.writes.at(-1).postProductMapping, undefined);
 });
 
-test('update shows release notes and waits for confirmation before invoking native updater', async () => {
+test('confirmation keeps the signed release from the preview when latest changes', async () => {
   const h = harness();
+  h.publish({
+    tag_name: 'v1.5.3',
+    body: '修正設定頁操作。',
+    assets: [{ name: 'update-manifest.json', digest: `sha256:${releaseSha256}` }]
+  });
   await h.click('run-update-btn');
   assert.equal(h.nodes['update-preview'].hidden, false);
   assert.match(h.nodes['update-preview-notes'].textContent, /修正設定頁操作/);
-  assert.equal(h.nativeMessages.length, 0);
+  assert.deepEqual(h.nativeMessages, [{
+    host: 'com.metareplypro.updater.pinned',
+    message: { action: 'preview', version: '1.5.3' }
+  }]);
   h.click('cancel-update-btn');
-  assert.equal(h.nativeMessages.length, 0);
-  await h.click('check-update-btn');
-  h.click('confirm-update-btn');
+  await h.click('confirm-update-btn');
   assert.equal(h.nativeMessages.length, 1);
-  assert.equal(h.nativeMessages[0].action, 'update');
+  await h.click('check-update-btn');
+  h.publish({ tag_name: 'v1.5.4', body: '下一版說明。' });
+  await h.click('confirm-update-btn');
+  assert.deepEqual(h.nativeMessages.at(-1), {
+    host: 'com.metareplypro.updater.pinned',
+    message: { action: 'update', version: '1.5.3', manifestSha256: releaseSha256 }
+  });
+  assert.equal(h.nativeMessages.length, 3);
+});
+
+test('an unavailable or mismatched verifier cannot expose an install confirmation', async () => {
+  const h = harness();
+  h.removeHost();
+  await h.click('check-update-btn');
+  assert.equal(h.nodes['confirm-update-btn'].hidden, true);
+  assert.match(h.nodes['update-status'].textContent, /重新安裝/);
+  await h.click('confirm-update-btn');
+  assert.equal(h.nativeMessages.length, 1);
+  assert.equal(h.nativeMessages[0].host, 'com.metareplypro.updater.pinned');
+
+  const mismatch = harness();
+  mismatch.returnDifferentVersion('1.5.4');
+  await mismatch.click('check-update-btn');
+  assert.equal(mismatch.nodes['confirm-update-btn'].hidden, true);
+  assert.match(mismatch.nodes['update-status'].textContent, /版本不符/);
+});
+
+test('a republished tag with different signed data cannot reuse the earlier preview notes', async () => {
+  const h = harness({}, {
+    tag_name: 'v1.5.3',
+    body: '第一次發布的說明。',
+    assets: [{ name: 'update-manifest.json', digest: `sha256:${'b'.repeat(64)}` }]
+  });
+  await h.click('check-update-btn');
+  assert.equal(h.nodes['confirm-update-btn'].hidden, true);
+  assert.match(h.nodes['update-status'].textContent, /發布資料已變更/);
+  await h.click('confirm-update-btn');
+  assert.equal(h.nativeMessages.length, 1);
+});
+
+test('an unavailable confirmed release requires a new preview before retrying', async () => {
+  const h = harness();
+  await h.click('check-update-btn');
+  h.removeRelease();
+  await h.click('confirm-update-btn');
+  assert.match(h.nodes['update-status'].textContent, /重新檢查更新/);
+  await h.click('confirm-update-btn');
+  assert.equal(h.nativeMessages.length, 2);
 });
 
 test('latest installed version does not offer an update confirmation', async () => {
@@ -167,6 +246,20 @@ test('deleting a product also removes its bindings in the same save', async () =
   assert.deepEqual(h.writes.at(-1).products, []);
   assert.deepEqual(h.writes.at(-1).postProductMapping, {});
   assert.equal(h.nodes['product-list'].children.length, 0);
+});
+
+test('settings removes a product from the latest synced bindings even before its tab receives the change', async () => {
+  const h = harness({
+    products: [
+      { id: 'A', name: '帳篷', link: 'https://example.com/a' },
+      { id: 'B', name: '桌子', link: 'https://example.com/b' }
+    ],
+    postProductMapping: { 'v2:facebook:1:2': 'A' }
+  });
+  h.remoteWrite({ postProductMapping: { 'v2:facebook:1:2': 'A', 'v2:facebook:1:3': 'A', 'legacy title': 'B' } });
+  h.bodyClick('product', { type: 'product', id: 'A' }, 'delete-btn');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.writes.at(-1).postProductMapping, { 'legacy title': 'B' });
 });
 
 test('import validates data before saving and escapes displayed product text', async () => {

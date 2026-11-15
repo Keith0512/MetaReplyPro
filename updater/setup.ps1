@@ -41,10 +41,14 @@ try {
     throw 'release-info.json 與擴充功能內容不一致'
   }
 
+  # 舊版安裝器會覆蓋原檔名。新協定使用專用路徑以免呼叫到舊版。
   $updaterFiles = @(
     'update.ps1',
     'update-host.ps1',
     'update-host.bat',
+    'update-pinned.ps1',
+    'update-host-pinned.ps1',
+    'update-host-pinned.bat',
     'disable-auto-update.ps1',
     'trusted-update-key.json'
   )
@@ -71,18 +75,19 @@ try {
   }
   Copy-Item -LiteralPath $releaseInfoPath -Destination (Join-Path $InstallDir 'release-info.json') -Force
 
-  $hostManifestPath = Join-Path $InstallDir 'com.metareplypro.updater.json'
+  $hostName = 'com.metareplypro.updater.pinned'
+  $hostManifestPath = Join-Path $InstallDir "$hostName.json"
   $hostManifest = @{
-    name            = 'com.metareplypro.updater'
+    name            = $hostName
     description     = 'MetaReplyPro signed release updater'
-    path            = (Join-Path $InstallDir 'update-host.bat')
+    path            = (Join-Path $InstallDir 'update-host-pinned.bat')
     type            = 'stdio'
     allowed_origins = @("chrome-extension://$extensionId/")
   } | ConvertTo-Json
   [IO.File]::WriteAllText($hostManifestPath, $hostManifest, [Text.UTF8Encoding]::new($false))
 
   if (-not $SkipRegistry) {
-    $regPath = 'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.metareplypro.updater'
+    $regPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
     New-Item -Path $regPath -Force | Out-Null
     Set-ItemProperty -Path $regPath -Name '(default)' -Value $hostManifestPath
   }

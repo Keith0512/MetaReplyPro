@@ -39,6 +39,38 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.action !== 'savePostProductBinding') return;
+  const { postKey, productId } = message;
+  if (typeof postKey !== 'string' || !/^v2:(facebook|instagram):[0-9]+:[0-9]+(?:_[0-9]+)?$/.test(postKey) ||
+      (productId !== null && (typeof productId !== 'string' || !productId))) {
+    sendResponse({ ok: false, error: '貼文或商品識別無效。' });
+    return;
+  }
+
+  // The settings page uses the same lock when updating the shared sync item.
+  navigator.locks.request('meta-reply-sync-storage', async () => {
+    const { products, postProductMapping } = await chrome.storage.sync.get(['products', 'postProductMapping']);
+    if (productId !== null && !products?.some(product => product.id === productId)) {
+      throw new Error('商品已不存在，請重新開啟綁定視窗。');
+    }
+    const next = { ...postProductMapping };
+    if (productId === null) {
+      if (!Object.hasOwn(next, postKey)) return next;
+      delete next[postKey];
+    } else {
+      if (next[postKey] === productId) return next;
+      next[postKey] = productId;
+    }
+    await chrome.storage.sync.set({ postProductMapping: next });
+    return next;
+  }).then(
+    mapping => sendResponse({ ok: true, mapping }),
+    error => sendResponse({ ok: false, error: error.message })
+  );
+  return true;
+});
+
 // ---- 未封裝版自動更新 ----
 // 未封裝擴充功能的檔案是即時從磁碟讀取的：原生更新器換完新版檔案後，
 // 磁碟上 manifest.json 的版本會與記憶體中執行的版本不同，此時重新載入即可套用新版。

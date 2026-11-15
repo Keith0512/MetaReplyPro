@@ -11,6 +11,9 @@ SIGNATURE_SOURCE='https://github.com/Keith0512/MetaReplyPro/releases/latest/down
 PUBLIC_KEY_PATH=''
 ALLOW_LOCAL_SOURCES=0
 TEMP_DIR=''
+EXPECTED_VERSION=''
+EXPECTED_MANIFEST_SHA256=''
+PREVIEW=0
 
 log() {
   local message="$1"
@@ -102,6 +105,20 @@ while (( $# > 0 )); do
       ALLOW_LOCAL_SOURCES=1
       shift
       ;;
+    --expected-version)
+      (( $# >= 2 )) || { print -u2 -- '--expected-version 缺少版本'; exit 1; }
+      EXPECTED_VERSION="$2"
+      shift 2
+      ;;
+    --expected-manifest-sha256)
+      (( $# >= 2 )) || { print -u2 -- '--expected-manifest-sha256 缺少 SHA-256'; exit 1; }
+      EXPECTED_MANIFEST_SHA256="$2"
+      shift 2
+      ;;
+    --preview)
+      PREVIEW=1
+      shift
+      ;;
     *)
       print -u2 -- "不支援的參數：$1"
       exit 1
@@ -112,6 +129,20 @@ done
 [[ -d "$INSTALL_DIR" ]] || { print -u2 -- '找不到安裝目錄，請先安裝 MetaReplyPro'; exit 1; }
 [[ -n "$PUBLIC_KEY_PATH" ]] || PUBLIC_KEY_PATH="$INSTALL_DIR/trusted-update-key.pem"
 [[ -f "$PUBLIC_KEY_PATH" ]] || { fail "找不到受信任的更新公開金鑰：$PUBLIC_KEY_PATH"; exit 1; }
+
+if (( PREVIEW == 1 )) || [[ -n "$EXPECTED_VERSION" || -n "$EXPECTED_MANIFEST_SHA256" ]]; then
+  [[ "$EXPECTED_VERSION" =~ '^[0-9]+(\.[0-9]+){2,3}$' ]] ||
+    { fail '確認的發布版本格式無效'; exit 1; }
+  if (( PREVIEW == 0 )); then
+    [[ "$EXPECTED_MANIFEST_SHA256" =~ '^[0-9a-f]{64}$' ]] ||
+      { fail '確認的發布資料缺少有效的 SHA-256'; exit 1; }
+  fi
+  if (( ALLOW_LOCAL_SOURCES == 0 )); then
+    release_base="https://github.com/Keith0512/MetaReplyPro/releases/download/v$EXPECTED_VERSION"
+    MANIFEST_SOURCE="$release_base/update-manifest.json"
+    SIGNATURE_SOURCE="$release_base/update-manifest.json.sig"
+  fi
+fi
 
 extension_dir="$INSTALL_DIR/chrome-extension"
 local_manifest="$extension_dir/manifest.json"
@@ -189,6 +220,19 @@ fi
 [[ "${asset_source:t}" == "$asset_name" ]] ||
   { fail 'release manifest 的 assetName 與 assetUrl 不一致'; exit 1; }
 
+if [[ -n "$EXPECTED_VERSION" ]]; then
+  [[ "$release_version" == "$EXPECTED_VERSION" ]] ||
+    { fail '已驗證的發布版本與要求的版本不一致'; exit 1; }
+  manifest_sha256="$(/usr/bin/shasum -a 256 "$remote_manifest" | /usr/bin/awk '{print $1}')" ||
+    { fail '無法計算 release manifest SHA-256'; exit 1; }
+  if (( PREVIEW == 1 )); then
+    print -r -- "{\"ok\":true,\"version\":\"$release_version\",\"manifestSha256\":\"$manifest_sha256\"}"
+    exit 0
+  fi
+  [[ "$EXPECTED_MANIFEST_SHA256" == "$manifest_sha256" ]] ||
+    { fail '發布資料已變更，請重新檢查更新'; exit 1; }
+fi
+
 if ! version_is_newer "$release_version" "$local_version"; then
   log "已是最新版 $local_version（已驗證 release $release_version），不需更新"
   exit 0
@@ -251,6 +295,8 @@ extension_version="$(json_value "$new_extension_manifest" version)" ||
 updater_files=(
   update-macos.sh
   native-host-macos.sh
+  update-macos-pinned.sh
+  native-host-macos-pinned.sh
   trusted-update-key.pem
   trusted-update-key.json
 )
@@ -284,7 +330,9 @@ for name in "${updater_files[@]}"; do
 done
 /bin/chmod 755 \
   "$INSTALL_DIR/update-macos.sh.updating.$$" \
-  "$INSTALL_DIR/native-host-macos.sh.updating.$$" ||
+  "$INSTALL_DIR/native-host-macos.sh.updating.$$" \
+  "$INSTALL_DIR/update-macos-pinned.sh.updating.$$" \
+  "$INSTALL_DIR/native-host-macos-pinned.sh.updating.$$" ||
   { fail '無法設定新版更新器執行權限'; exit 1; }
 /bin/chmod 644 \
   "$INSTALL_DIR/trusted-update-key.pem.updating.$$" \

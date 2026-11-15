@@ -24,6 +24,10 @@ New-Item -ItemType Directory -Path $sourceUpdaterDir -Force | Out-Null
 foreach ($name in @('update.ps1', 'update-host.ps1', 'update-host.bat', 'disable-auto-update.ps1', 'trusted-update-key.json')) {
   Copy-Item (Join-Path $PSScriptRoot "..\$name") (Join-Path $sourceUpdaterDir $name)
 }
+foreach ($name in @('update.ps1', 'update-host.ps1', 'update-host.bat')) {
+  $pinnedName = $name.Replace('.', '-pinned.')
+  Copy-Item (Join-Path $sourceUpdaterDir $name) (Join-Path $sourceUpdaterDir $pinnedName)
+}
 
 $installDir = Join-Path $root 'install'
 $desktopDir = Join-Path $root 'desktop'
@@ -49,11 +53,12 @@ try {
   Assert (Test-Path (Join-Path $installDir 'trusted-update-key.json')) '安裝固定更新公開金鑰'
   Assert (Test-Path (Join-Path $installDir 'release-info.json')) '保留安裝版本與 commit 資訊'
 
-  $hostManifestPath = Join-Path $installDir 'com.metareplypro.updater.json'
+  $hostManifestPath = Join-Path $installDir 'com.metareplypro.updater.pinned.json'
   Assert (Test-Path $hostManifestPath) '產生 native host manifest'
   $hostManifest = Get-Content $hostManifestPath -Raw | ConvertFrom-Json
-  Assert ($hostManifest.name -eq 'com.metareplypro.updater') 'host manifest 名稱正確'
-  Assert ($hostManifest.path -eq (Join-Path $installDir 'update-host.bat')) 'host manifest 指向安裝目錄'
+  Assert ($hostManifest.name -eq 'com.metareplypro.updater.pinned') 'host manifest 名稱正確'
+  Assert ($hostManifest.path -eq (Join-Path $installDir 'update-host-pinned.bat')) 'host manifest 使用舊版不會覆寫的路徑'
+  Assert (Test-Path (Join-Path $installDir 'update-pinned.ps1')) '安裝指定版本更新器'
   Assert (@($hostManifest.allowed_origins) -contains 'chrome-extension://gnekicgafkpbmafejjcbaagcpfnmfjbh/') 'host 只允許固定擴充功能 ID'
 
   if ($isWindowsPlatform) {

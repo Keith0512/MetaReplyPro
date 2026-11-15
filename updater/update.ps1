@@ -5,6 +5,9 @@ param(
   [string]$ManifestUrl = 'https://github.com/Keith0512/MetaReplyPro/releases/latest/download/update-manifest.json',
   [string]$SignatureUrl = 'https://github.com/Keith0512/MetaReplyPro/releases/latest/download/update-manifest.json.sig',
   [string]$TrustedPublicKeyPath = '',
+  [string]$ExpectedVersion = '',
+  [string]$ExpectedManifestSha256 = '',
+  [switch]$Preview,
   [switch]$Interactive,
   [switch]$AllowLocalSources
 )
@@ -162,6 +165,19 @@ $tempDir = Join-Path $env:TEMP ("MetaReplyProUpdate_" + [guid]::NewGuid().ToStri
 if ($Interactive) { Write-Host '正在驗證 MetaReplyPro 安全更新…' }
 
 try {
+  if ($Preview -or $ExpectedVersion -or $ExpectedManifestSha256) {
+    if ($ExpectedVersion -cnotmatch '^[0-9]+(\.[0-9]+){2,3}\z') {
+      throw '確認的發布版本格式無效'
+    }
+    if (-not $Preview -and $ExpectedManifestSha256 -cnotmatch '^[0-9a-f]{64}\z') {
+      throw '確認的發布資料缺少有效的 SHA-256'
+    }
+    if (-not $AllowLocalSources) {
+      $releaseBase = "https://github.com/Keith0512/MetaReplyPro/releases/download/v$ExpectedVersion"
+      $ManifestUrl = "$releaseBase/update-manifest.json"
+      $SignatureUrl = "$releaseBase/update-manifest.json.sig"
+    }
+  }
   if (-not (Test-Path -LiteralPath (Join-Path $extensionDir 'manifest.json'))) {
     throw '本機擴充功能缺少 manifest.json，請重新安裝'
   }
@@ -174,6 +190,20 @@ try {
   $verified = Read-And-VerifyReleaseManifest $remoteManifestPath $remoteSignaturePath $TrustedPublicKeyPath
   $release = $verified.Release
   $trustedKey = $verified.TrustedKey
+
+  if ($ExpectedVersion) {
+    if ([string]$release.version -cne $ExpectedVersion) {
+      throw '已驗證的發布版本與要求的版本不一致'
+    }
+    $manifestSha256 = Get-Sha256Hex $remoteManifestPath
+    if ($Preview) {
+      @{ ok = $true; version = $ExpectedVersion; manifestSha256 = $manifestSha256 } | ConvertTo-Json -Compress
+      exit 0
+    }
+    if ($ExpectedManifestSha256 -cne $manifestSha256) {
+      throw '發布資料已變更，請重新檢查更新'
+    }
+  }
 
   $localVersion = [version](Get-Content -LiteralPath (Join-Path $extensionDir 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
   $remoteVersion = [version]([string]$release.version)
@@ -226,6 +256,9 @@ try {
     'update.ps1',
     'update-host.ps1',
     'update-host.bat',
+    'update-pinned.ps1',
+    'update-host-pinned.ps1',
+    'update-host-pinned.bat',
     'disable-auto-update.ps1',
     'trusted-update-key.json'
   )

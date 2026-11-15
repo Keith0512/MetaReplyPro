@@ -135,13 +135,9 @@
               <label for="ig-dm-wait-time">確認等待時間 (秒)</label>
               <input type="number" id="ig-dm-wait-time" min="1" step="1" value="10">
             </div>
-            <div>
-              <label for="ig-dm-retries">最高重試次數</label>
-              <input type="number" id="ig-dm-retries" min="0" step="1" value="3">
-            </div>
           </div>
           <div class="warning">
-            ⚠️ 若私訊送出後畫面未出現內容，將會於等待時間後重試送出。
+            私訊送出後若未在等待時間內看到新訊息，批次結果會列為「待核對」。
           </div>
         </section>
 

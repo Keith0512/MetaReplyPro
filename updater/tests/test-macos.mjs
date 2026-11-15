@@ -68,6 +68,7 @@ function makePackage({
   releaseCommit = '1111111111111111111111111111111111111111',
   packageCommit = releaseCommit,
   hashOverride = '',
+  legacyUpdater = false,
 }) {
   const fixtureDir = join(testRoot, name);
   const rootName = `MetaReplyPro-v${releaseVersion}`;
@@ -98,6 +99,11 @@ function makePackage({
   ]) {
     cpSync(join(repoRoot, 'updater', file), join(updaterDir, file));
     chmodSync(join(updaterDir, file), 0o755);
+  }
+  if (!legacyUpdater) {
+    for (const file of ['update-macos.sh', 'native-host-macos.sh']) {
+      cpSync(join(updaterDir, file), join(updaterDir, file.replace('.', '-pinned.')));
+    }
   }
   cpSync(trustedJsonPath, join(updaterDir, 'trusted-update-key.json'));
   cpSync(trustedPemPath, join(updaterDir, 'trusted-update-key.pem'));
@@ -141,7 +147,7 @@ function makePackage({
   };
 }
 
-function runUpdate(fixture) {
+function runUpdate(fixture, ...args) {
   return run('/bin/zsh', [
     join(installDir, 'update-macos.sh'),
     '--install-dir',
@@ -153,6 +159,7 @@ function runUpdate(fixture) {
     '--public-key',
     join(installDir, 'trusted-update-key.pem'),
     '--allow-local-sources',
+    ...args,
   ]);
 }
 
@@ -190,16 +197,17 @@ try {
     '安裝正確的擴充功能版本',
   );
   assert(
-    (statSync(join(installDir, 'native-host-macos.sh')).mode & 0o111) !== 0,
+    (statSync(join(installDir, 'native-host-macos-pinned.sh')).mode & 0o111) !== 0,
     'Native Messaging host 具有執行權限',
   );
   const hostManifest = json(
-    join(nativeHostDir, 'com.metareplypro.updater.json'),
+    join(nativeHostDir, 'com.metareplypro.updater.pinned.json'),
   );
+  assert(hostManifest.name === 'com.metareplypro.updater.pinned', '註冊支援版本確認的 host');
   assert(
     realpathSync(hostManifest.path) ===
-      realpathSync(join(installDir, 'native-host-macos.sh')),
-    'Chrome host manifest 使用 macOS 絕對路徑',
+      realpathSync(join(installDir, 'native-host-macos-pinned.sh')),
+    'Chrome host manifest 使用舊版不會覆寫的絕對路徑',
   );
   assert(
     hostManifest.allowed_origins?.[0] ===
@@ -211,7 +219,37 @@ try {
     name: 'good',
     releaseVersion: '1.5.1',
   });
-  const goodUpdate = runUpdate(good);
+  const approvedVersion = ['--expected-version', '1.5.1'];
+  const preview = runUpdate(good, ...approvedVersion, '--preview');
+  const manifestSha256 = createHash('sha256').update(readFileSync(good.manifestPath)).digest('hex');
+  const previewData = preview.status === 0 ? JSON.parse(preview.stdout) : null;
+  assert(
+    previewData?.ok === true &&
+      previewData.version === '1.5.1' &&
+      previewData.manifestSha256 === manifestSha256 &&
+      json(join(installDir, 'chrome-extension/manifest.json')).version === '1.5.0',
+    '預覽驗證簽章並回傳版本與 manifest SHA-256，未安裝更新',
+    preview.stderr,
+  );
+  const updateApproval = [...approvedVersion, '--expected-manifest-sha256', manifestSha256];
+  const otherVersion = makePackage({ name: 'other-version', releaseVersion: '1.5.2' });
+  assert(runUpdate(otherVersion, ...updateApproval).status !== 0, '拒絕其他已簽章版本');
+  const republished = makePackage({ name: 'republished', releaseVersion: '1.5.1' });
+  assert(runUpdate(republished, ...updateApproval).status !== 0, '拒絕同版但不同 manifest 的已簽章發布');
+  assert(
+    runUpdate({ ...good, manifestPath: join(testRoot, 'missing.json') }, ...updateApproval).status !== 0 &&
+      json(join(installDir, 'chrome-extension/manifest.json')).version === '1.5.0',
+    '找不到已確認的發布時保留舊版',
+  );
+  const legacy = makePackage({ name: 'legacy', releaseVersion: '1.5.1', legacyUpdater: true });
+  const legacyManifestSha256 = createHash('sha256').update(readFileSync(legacy.manifestPath)).digest('hex');
+  assert(
+    runUpdate(legacy, ...approvedVersion, '--expected-manifest-sha256', legacyManifestSha256).status !== 0 &&
+      json(join(installDir, 'chrome-extension/manifest.json')).version === '1.5.0',
+    '拒絕沒有新版更新器的既有已簽章套件',
+  );
+
+  const goodUpdate = runUpdate(good, ...updateApproval);
   assert(goodUpdate.status === 0, '有效簽章與 SHA-256 時允許更新', goodUpdate.stderr);
   assert(
     json(join(installDir, 'chrome-extension/manifest.json')).version === '1.5.1',
@@ -225,6 +263,10 @@ try {
   assert(
     existsSync(join(installDir, 'chrome-extension.backup/manifest.json')),
     '更新後保留上一版備份',
+  );
+  assert(
+    (statSync(join(installDir, 'update-macos-pinned.sh')).mode & 0o111) !== 0,
+    '新版專用更新器保留執行權限',
   );
 
   writeFileSync(join(installDir, 'chrome-extension/content.js'), 'marker\n');
@@ -246,6 +288,7 @@ try {
   );
   const rejectedSignature = runUpdate(badSignature);
   assert(rejectedSignature.status !== 0, '錯誤簽章會被拒絕');
+  assert(runUpdate(badSignature, '--expected-version', '1.5.2', '--preview').status !== 0, '預覽拒絕錯誤簽章');
   assert(
     readFileSync(join(installDir, 'chrome-extension/content.js'), 'utf8').trim() ===
       'marker',
@@ -280,11 +323,12 @@ try {
 
   const protocolDir = join(testRoot, 'protocol');
   mkdirSync(join(protocolDir, 'chrome-extension'), { recursive: true });
+  const protocolHost = join(protocolDir, 'native-host-macos-pinned.sh');
   cpSync(
     join(repoRoot, 'updater/native-host-macos.sh'),
-    join(protocolDir, 'native-host-macos.sh'),
+    protocolHost,
   );
-  chmodSync(join(protocolDir, 'native-host-macos.sh'), 0o755);
+  chmodSync(protocolHost, 0o755);
   writeFileSync(
     join(protocolDir, 'chrome-extension/manifest.json'),
     '{"version":"1.5.0"}\n',
@@ -292,16 +336,55 @@ try {
   writeFileSync(
     join(protocolDir, 'update-macos.sh'),
     `#!/bin/zsh
+/usr/bin/touch "${join(protocolDir, 'legacy-called')}"
+exit 1
+`,
+  );
+  writeFileSync(
+    join(protocolDir, 'update-macos-pinned.sh'),
+    `#!/bin/zsh
+[[ "$1" == --install-dir && "$2" == "${realpathSync(protocolDir)}" && "$3" == --expected-version && "$4" == 1.5.1 ]] || exit 1
+if [[ "$5" == --preview ]]; then
+  print -r -- '{"ok":true,"version":"1.5.1","manifestSha256":"${manifestSha256}"}'
+  exit 0
+fi
+[[ "$5" == --expected-manifest-sha256 && "$6" == ${manifestSha256} ]] || exit 1
 /usr/bin/plutil -replace version -string 1.5.1 "${join(protocolDir, 'chrome-extension/manifest.json')}"
 `,
   );
-  chmodSync(join(protocolDir, 'update-macos.sh'), 0o755);
+  chmodSync(join(protocolDir, 'update-macos-pinned.sh'), 0o755);
+
+  const hostPreview = run(
+    '/bin/zsh',
+    [protocolHost],
+    {
+      input: frameMessage({ action: 'preview', version: '1.5.1' }),
+      encoding: null,
+    },
+  );
+  const hostPreviewResponse = parseFramedMessage(hostPreview.stdout);
+  assert(
+    hostPreviewResponse?.ok === true &&
+      hostPreviewResponse.manifestSha256 === manifestSha256 &&
+      json(join(protocolDir, 'chrome-extension/manifest.json')).version === '1.5.0',
+    'macOS Native Messaging 回傳驗證的預覽資料',
+  );
+
+  const unpinnedResult = run(
+    '/bin/zsh',
+    [protocolHost],
+    {
+      input: frameMessage({ action: 'update', version: '1.5.1' }),
+      encoding: null,
+    },
+  );
+  assert(parseFramedMessage(unpinnedResult.stdout)?.ok === false, 'Native Messaging 拒絕缺少確認資料的更新');
 
   const hostResult = run(
     '/bin/zsh',
-    [join(protocolDir, 'native-host-macos.sh')],
+    [protocolHost],
     {
-      input: frameMessage({ action: 'update' }),
+      input: frameMessage({ action: 'update', version: '1.5.1', manifestSha256 }),
       encoding: null,
     },
   );
@@ -314,10 +397,11 @@ try {
       hostResponse?.after === '1.5.1',
     'macOS Native Messaging 可執行更新並回覆正確框架',
   );
+  assert(!existsSync(join(protocolDir, 'legacy-called')), 'Native Messaging 不會呼叫舊版更新器');
 
   const unsupportedResult = run(
     '/bin/zsh',
-    [join(protocolDir, 'native-host-macos.sh')],
+    [protocolHost],
     {
       input: frameMessage({ action: 'delete' }),
       encoding: null,

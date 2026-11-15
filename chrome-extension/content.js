@@ -3,7 +3,7 @@ console.log("Meta Auto Reply Extension: Content script loaded.");
 // ============================================================
 // SHARED STATE
 // ============================================================
-let isRunning = false;
+let activeBatch = null;
 let currentSettings = null;
 let currentProducts = [];
 let selectedProduct = null;
@@ -28,15 +28,16 @@ function getBoundProductId(postTitle) {
   return Object.hasOwn(postProductMapping || {}, postTitle) ? postProductMapping[postTitle] : null;
 }
 
-function setBoundProductId(postTitle, productId) {
-  if (!isStablePostKey(postTitle)) return;
-  postProductMapping ||= {};
-  postProductMapping[postTitle] = productId;
+async function saveBoundProductId(postKey, productId) {
+  const previousMapping = postProductMapping;
+  const result = await chrome.runtime.sendMessage({ action: 'savePostProductBinding', postKey, productId });
+  if (!result?.ok) throw new Error(result?.error || '無法取得儲存結果。');
+  if (postProductMapping === previousMapping) applyPostProductMapping(result.mapping);
 }
 
-function deleteBoundProductId(postTitle) {
-  if (!isStablePostKey(postTitle) || !postProductMapping) return;
-  delete postProductMapping[postTitle];
+function applyPostProductMapping(mapping) {
+  postProductMapping = mapping || {};
+  updateBindButtonStates();
 }
 
 function isStablePostKey(key) {
@@ -50,15 +51,58 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function simulateTyping(element, text) {
+function ownsFocus(editor) {
+  const focused = document.activeElement;
+  return focused === editor || (focused && editor.contains(focused));
+}
+
+function editorText(editor) {
+  return editor.value ?? (editor.innerText || editor.textContent || '');
+}
+
+function normalizeMessage(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function pasteText(element, text) {
+  const clipboardData = new DataTransfer();
+  clipboardData.setData('text/plain', text);
+  element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+}
+
+async function simulateTyping(element, text, canUse, pasteWholeMessage) {
+  if (!canUse()) return;
   element.focus();
   await sleep(100);
+
+  const canType = () => canUse() && ownsFocus(element);
+  if (!canType()) return;
+  if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+    const proto = element.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (nativeSetter) {
+      nativeSetter.call(element, text);
+    } else {
+      element.value = text;
+    }
+    element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    if (canType()) element.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+
+  if (pasteWholeMessage) {
+    pasteText(element, text);
+    return;
+  }
 
   // 按行分開插入，用 Shift+Enter 換行
   // （直接插入含 \n 的文字，Messenger 的 Lexical 編輯器不會正確處理）
   const lines = text.split('\n');
 
   for (let i = 0; i < lines.length; i++) {
+    if (!canType()) return;
     const line = lines[i];
 
     if (line.length > 0) {
@@ -68,34 +112,30 @@ async function simulateTyping(element, text) {
       } catch (e) {}
 
       // 只有在 execCommand 明確失敗時才用 paste 備用，避免重複插入
-      if (!success) {
-        const dataTransfer = new DataTransfer();
-        dataTransfer.setData('text/plain', line);
-        element.dispatchEvent(new ClipboardEvent('paste', {
-          clipboardData: dataTransfer,
-          bubbles: true,
-          cancelable: true
-        }));
+      if (!success && canType()) {
+        pasteText(element, line);
         await sleep(80);
       }
     }
 
     // 每個 \n 改用 Shift+Enter 換行（純 Enter 在 Messenger 會直接送出）
-    if (i < lines.length - 1) {
+    if (i < lines.length - 1 && canType()) {
       element.dispatchEvent(new KeyboardEvent('keydown', {
         bubbles: true, cancelable: true,
         key: 'Enter', keyCode: 13, shiftKey: true
       }));
-      element.dispatchEvent(new KeyboardEvent('keyup', {
-        bubbles: true, cancelable: true,
-        key: 'Enter', keyCode: 13, shiftKey: true
-      }));
+      if (canType()) {
+        element.dispatchEvent(new KeyboardEvent('keyup', {
+          bubbles: true, cancelable: true,
+          key: 'Enter', keyCode: 13, shiftKey: true
+        }));
+      }
       await sleep(80);
     }
   }
   
   // 觸發 input 事件讓 React/Lexical 等框架能更新內部 state
-  element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+  if (canType()) element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
 }
 
 function escapeHtml(str) {
@@ -130,20 +170,229 @@ function findButtonByText(container, texts) {
 }
 
 // 觸發完整的滑鼠點擊事件（避免 React 合成事件無法觸發的問題）
-function dispatchClick(el) {
-  ['mousedown', 'mouseup', 'click'].forEach(type => {
+function dispatchClick(el, canUse) {
+  for (const type of ['mousedown', 'mouseup', 'click']) {
+    if (!el.isConnected || !canUse()) return false;
     el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+  }
+  return true;
+}
+
+function dispatchEnter(editor, canUse) {
+  if (!canUse() || !ownsFocus(editor)) return false;
+  const params = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+  for (const type of ['keydown', 'keypress', 'keyup']) {
+    if (!canUse() || !ownsFocus(editor)) break;
+    editor.dispatchEvent(new KeyboardEvent(type, params));
+  }
+  return true;
+}
+
+const EDITABLE_SELECTOR = '[contenteditable="true"], textarea, input[type="text"]';
+const CHAT_SELECTOR = 'dialog, [role="dialog"], [role="complementary"]';
+const MESSAGE_ROW_SELECTOR = '[role="row"], [role="listitem"], [data-message-id]';
+const OUTGOING_DATA_SELECTOR = '[data-message-direction="outgoing"], [data-message-author="self"]';
+const OUTGOING_LABEL = /^(?:you sent|(?:你|您)(?:已)?(?:傳送了|發送了))(?=$|[\s:：])/i;
+
+function isVisible(node) {
+  return node.isConnected && node.getClientRects().length > 0;
+}
+
+function visibleEditors() {
+  return Array.from(document.querySelectorAll(EDITABLE_SELECTOR)).filter(isVisible);
+}
+
+async function openEditor(block, button, canUse, recipient = null) {
+  const previousEditors = new Set(visibleEditors());
+  const previousFocus = document.activeElement;
+  const control = button.closest('[aria-controls]');
+  const controls = control?.getAttribute('aria-controls');
+  const canClick = () => canUse() && block.contains(button);
+  if (!dispatchClick(button, canClick)) return null;
+
+  for (let attempt = 0; attempt < 16 && canUse(); attempt++) {
+    const controlled = controls ? document.getElementById(controls) : null;
+    const editors = visibleEditors();
+    if (recipient) {
+      const candidates = new Map();
+      for (const editor of editors) {
+        const panel = editor.closest(CHAT_SELECTOR);
+        if (!panel || panel.contains(block)) continue;
+        if (controls ? !controlled?.contains(editor) : !matchesRecipient(panel, recipient)) continue;
+        if (!candidates.has(panel)) candidates.set(panel, []);
+        if (!previousEditors.has(editor)) candidates.get(panel).push(editor);
+      }
+      if (candidates.size > 1) return null;
+      const [matchingEditors = []] = candidates.values();
+      const editor = matchingEditors.find(ownsFocus) || (matchingEditors.length === 1 ? matchingEditors[0] : null);
+      if (editor) return { editor, control, controlled, controls };
+    } else {
+      const candidates = editors.filter(editor => (block.contains(editor) || controlled?.contains(editor)) &&
+        (!previousEditors.has(editor) || (document.activeElement !== previousFocus && ownsFocus(editor))));
+      const editor = candidates.find(ownsFocus) || (candidates.length === 1 ? candidates[0] : null);
+      if (editor) return { editor, control, controlled, controls };
+    }
+    await sleep(400);
+  }
+  return null;
+}
+
+function conversationHeading(panel) {
+  return panel.querySelector('[role="heading"], h1, h2, h3') || panel.querySelector('header');
+}
+
+function matchesRecipient(panel, recipient) {
+  const recipientId = panel.getAttribute('data-recipient-id');
+  if (recipient.id && recipientId) return recipient.id === recipientId;
+  if (!recipient.name || recipient.name === '未知用戶') return false;
+  const name = normalizeMessage(recipient.name).toLowerCase();
+  const explicitName = panel.getAttribute('data-recipient-name');
+  if (explicitName) return normalizeMessage(explicitName).toLowerCase() === name;
+  const labelId = panel.getAttribute('aria-labelledby');
+  const explicitLabels = [
+    panel.getAttribute('aria-label'),
+    labelId ? document.getElementById(labelId)?.innerText : '',
+    conversationHeading(panel)?.innerText
+  ];
+  return explicitLabels.some(label => {
+    const text = normalizeMessage(label || '').toLowerCase();
+    return [name, `chat with ${name}`, `send message to ${name}`, `與${name}的對話`, `傳送訊息給${name}`].includes(text);
   });
 }
 
-// 等待直到找到符合 selector 的元素，最多 retries 次，每次間隔 intervalMs
-async function waitForElement(selector, retries = 8, intervalMs = 500) {
-  for (let i = 0; i < retries; i++) {
-    const el = document.querySelector(selector);
-    if (el) return el;
-    await sleep(intervalMs);
+function conversationIdentity(panel) {
+  return JSON.stringify([
+    panel.getAttribute('data-thread-id'), panel.getAttribute('data-conversation-id'),
+    panel.getAttribute('data-recipient-id'), panel.getAttribute('data-recipient-name'),
+    panel.getAttribute('aria-label'), panel.getAttribute('aria-labelledby'), conversationHeading(panel)?.innerText
+  ]);
+}
+
+function messageTimestamp(row) {
+  const value = row.querySelector('time[datetime]')?.getAttribute('datetime') || '';
+  return /T.*(?:Z|[+-]\d\d:\d\d)$/i.test(value) ? Date.parse(value) : NaN;
+}
+
+function conversationMessages(panel, editor, message) {
+  const rows = new Map();
+  for (const marker of panel.querySelectorAll(`${MESSAGE_ROW_SELECTOR}, [aria-label], ${OUTGOING_DATA_SELECTOR}`)) {
+    const label = marker.getAttribute('aria-label') || '';
+    const isOutgoing = OUTGOING_LABEL.test(label) || marker.matches(OUTGOING_DATA_SELECTOR);
+    if (!isOutgoing && !marker.matches(MESSAGE_ROW_SELECTOR)) continue;
+    const row = marker.closest(MESSAGE_ROW_SELECTOR) || marker;
+    if (row === panel || !panel.contains(row) || row.contains(editor) || editor.contains(row) ||
+        row.closest(CHAT_SELECTOR) !== panel || !row.getClientRects().length) continue;
+    if (!rows.has(row)) rows.set(row, { row, id: row.getAttribute('data-message-id') || row.id, matches: false });
+    if (!isOutgoing) continue;
+
+    const messageParts = [
+      label.replace(OUTGOING_LABEL, '').replace(/^\s*[:：]\s*/, ''),
+      row.innerText || '',
+      ...Array.from(row.querySelectorAll('[dir="auto"]'), part => part.innerText || '')
+    ];
+    if (messageParts.some(part => normalizeMessage(part) === message)) rows.get(row).matches = true;
   }
-  return null;
+  return Array.from(rows.values());
+}
+
+function hasNewOutgoingMessage(previous, current, submittedAt) {
+  if (!previous.length) return current.some(record => {
+    if (!record.matches) return false;
+    const timestamp = messageTimestamp(record.row);
+    return timestamp >= submittedAt && timestamp <= Date.now();
+  });
+  const sameRecord = (a, b) => a.id && b.id ? a.id === b.id : a.row === b.row;
+  const lastRecord = previous.at(-1);
+  const oldEnd = current.findIndex(record => sameRecord(lastRecord, record));
+  if (oldEnd === -1) return false;
+  return current.slice(oldEnd + 1).some(record =>
+    record.matches && !previous.some(prior => sameRecord(prior, record))
+  );
+}
+
+function findChatButton(panel, labels) {
+  return Array.from(panel.querySelectorAll('[role="button"], button')).find(button =>
+    isVisible(button) && button.closest(CHAT_SELECTOR) === panel &&
+    (labels.includes(button.getAttribute('aria-label')) || labels.includes(button.innerText?.trim()) ||
+      Array.from(button.querySelectorAll('[aria-label]')).some(icon => labels.includes(icon.getAttribute('aria-label'))))
+  );
+}
+
+async function prepareMessage(editor, message, canUse, pasteWholeMessage = false) {
+  if (!canUse() || normalizeMessage(editorText(editor))) return false;
+  await simulateTyping(editor, message, canUse, pasteWholeMessage);
+  await sleep(800);
+  return canUse() && ownsFocus(editor) && normalizeMessage(editorText(editor)) === normalizeMessage(message);
+}
+
+async function processBatchComment(block, product, batch, result, platform) {
+  const canUseBlock = () => canContinueBatch(batch) && block.isConnected;
+  if (!canUseBlock()) return;
+  const settings = getSettings();
+  const publicMessage = getRandomItem(settings.publicReplies);
+  const replyButton = findButtonByText(block, ['回覆', 'Reply']);
+  if (replyButton && publicMessage) {
+    const opened = await openEditor(block, replyButton, canUseBlock);
+    if (opened) {
+      const { editor, control, controlled, controls } = opened;
+      const insideBlock = block.contains(editor);
+      const canUseReply = () => canUseBlock() && isVisible(editor) &&
+        (insideBlock ? block.contains(editor) : block.contains(control) &&
+          control.getAttribute('aria-controls') === controls &&
+          document.getElementById(controls) === controlled && controlled.contains(editor));
+      const sameReply = () => canUseReply() && normalizeMessage(editorText(editor)) === normalizeMessage(publicMessage);
+      if (await prepareMessage(editor, publicMessage, canUseReply) && dispatchEnter(editor, sameReply)) {
+        result.publicReply = true;
+        await sleep(3000);
+      }
+    }
+  }
+
+  if (!canUseBlock()) return;
+  const dmButton = findButtonByText(block, ['發送訊息', 'Send message']);
+  if (!dmButton) return;
+  const recipient = { name: result.name, id: block.getAttribute('data-user-id') };
+  const opened = await openEditor(block, dmButton, canUseBlock, recipient);
+  if (!opened || !canUseBlock()) return;
+
+  const { editor, control, controlled, controls } = opened;
+  const panel = editor.closest(CHAT_SELECTOR);
+  if (!panel) return;
+  const identity = conversationIdentity(panel);
+  const canUseDm = () => canUseBlock() && isVisible(editor) &&
+    editor.closest(CHAT_SELECTOR) === panel && conversationIdentity(panel) === identity &&
+    (controls ? block.contains(control) && control.getAttribute('aria-controls') === controls &&
+      document.getElementById(controls) === controlled && controlled.contains(editor) : matchesRecipient(panel, recipient));
+  const message = buildDmMessage(getRandomItem(settings.dmPrefixes), product.link, getRandomItem(settings.dmSuffixes));
+  if (!message || !await prepareMessage(editor, message, canUseDm, platform === 'instagram')) return;
+
+  const normalized = normalizeMessage(message);
+  const previousMessages = conversationMessages(panel, editor, normalized);
+  const sendButton = findChatButton(panel, ['發送訊息', '傳送', 'Send', '發送']);
+  const sameDraft = () => canUseDm() && normalizeMessage(editorText(editor)) === normalized;
+  const submittedAt = Date.now();
+  const dispatched = sendButton
+    ? dispatchClick(sendButton, () => sameDraft() && panel.contains(sendButton) &&
+      (ownsFocus(editor) || ownsFocus(sendButton)))
+    : dispatchEnter(editor, sameDraft);
+  if (!dispatched) return;
+  result.dm = 'unconfirmed';
+
+  const waitSeconds = platform === 'instagram' && Number.isFinite(settings.igDmWaitTime)
+    ? Math.max(1, settings.igDmWaitTime)
+    : 10;
+  for (let elapsed = 0; elapsed < waitSeconds && canUseDm(); elapsed++) {
+    await sleep(1000);
+    if (canUseDm() && !normalizeMessage(editorText(editor)) &&
+        hasNewOutgoingMessage(previousMessages, conversationMessages(panel, editor, normalized), submittedAt)) {
+      result.dm = 'confirmed';
+      break;
+    }
+  }
+
+  if (!canUseDm()) return;
+  const closeButton = findChatButton(panel, ['關閉', 'Close']);
+  if (closeButton) dispatchClick(closeButton, () => canUseDm() && panel.contains(closeButton));
 }
 
 // ============================================================
@@ -236,121 +485,8 @@ const FB = {
     return name;
   },
 
-  async processComment(block, product) {
-    console.log('[FB] Processing comment...');
-    const settings = getSettings();
-
-    // 找葉節點，避免選到父容器
-    const replyBtn = findButtonByText(block, ['回覆', 'Reply']);
-    const sendMsgBtn = findButtonByText(block, ['發送訊息', 'Send message']);
-
-    console.log('[FB] replyBtn:', replyBtn, '| sendMsgBtn:', sendMsgBtn);
-
-    if (!replyBtn || !sendMsgBtn) {
-      console.log('[FB] 找不到回覆或發送訊息按鈕，跳過此留言。');
-      return false;
-    }
-
-    // Step 1: 公開留言回覆
-    dispatchClick(replyBtn);
-    await sleep(2500);
-
-    // 優先用 activeElement：點擊回覆後瀏覽器會 focus 到回覆框
-    let commentInput = null;
-    for (let i = 0; i < 10; i++) {
-      const active = document.activeElement;
-      if (active && (
-        active.getAttribute('contenteditable') === 'true' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'INPUT' ||
-        active.closest('[contenteditable="true"]')
-      )) {
-        commentInput = active.closest('[contenteditable="true"]') || active;
-        console.log('[FB] 透過 activeElement 找到回覆框:', active.tagName);
-        break;
-      }
-      await sleep(300);
-    }
-
-    if (!commentInput) {
-      // 等待輸入框出現（多種 selector 兼容）
-      commentInput = await waitForElement(
-        'div[aria-label="回覆留言"], div[aria-label="Reply to comment"], ' +
-        '[role="textbox"][contenteditable="true"]'
-      );
-    }
-
-    if (commentInput) {
-      console.log('[FB] 找到回覆輸入框，開始輸入...');
-      const msg = getRandomItem(settings.publicReplies);
-      // 確保點擊 contenteditable 區域
-      const editableArea = commentInput.querySelector('p') || commentInput;
-      await simulateTyping(editableArea, msg);
-      await sleep(1000);
-      const textbox = editableArea.closest('[role="textbox"]') || editableArea;
-      
-      // 確保完整的 Enter 事件觸發 (Lexical 等新版編輯器需要精確事件)
-      const enterEventParams = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-      textbox.dispatchEvent(new KeyboardEvent('keydown', enterEventParams));
-      textbox.dispatchEvent(new KeyboardEvent('keypress', enterEventParams));
-      textbox.dispatchEvent(new KeyboardEvent('keyup', enterEventParams));
-      
-      await sleep(3000);
-    } else {
-      console.log('[FB] 回覆輸入框未出現，跳過公開回覆。');
-    }
-
-    // Step 2: 私訊商品連結
-    // 重新從 block 找 sendMsgBtn（DOM 可能因回覆操作而更新）
-    const freshSendMsgBtn = findButtonByText(block, ['發送訊息', 'Send message']);
-    if (!freshSendMsgBtn) {
-      console.log('[FB] 重新找不到發送訊息按鈕。');
-      return !!commentInput;
-    }
-    dispatchClick(freshSendMsgBtn);
-    await sleep(3000);
-
-    // 等待對話框出現
-    const dmInput = await waitForElement(
-      'div[role="dialog"] [contenteditable="true"], ' +
-      'div[role="dialog"] div[role="textbox"] p'
-    );
-
-    if (dmInput) {
-      console.log('[FB] 找到私訊輸入框，開始輸入...');
-      const prefix = getRandomItem(settings.dmPrefixes);
-      const suffix = getRandomItem(settings.dmSuffixes || []);
-      const link = product ? product.link : '';
-      const fullMsg = buildDmMessage(prefix, link, suffix);
-
-      await simulateTyping(dmInput, fullMsg);
-      await sleep(1000);
-
-      const sendBtn = findButtonByText(
-        document.querySelector('div[role="dialog"]') || document,
-        ['發送訊息', '傳送', 'Send']
-      );
-      if (sendBtn) {
-        dispatchClick(sendBtn);
-      } else {
-        const enterEventParams = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-        dmInput.dispatchEvent(new KeyboardEvent('keydown', enterEventParams));
-        dmInput.dispatchEvent(new KeyboardEvent('keypress', enterEventParams));
-        dmInput.dispatchEvent(new KeyboardEvent('keyup', enterEventParams));
-      }
-
-      await sleep(3000);
-
-      const closeBtn =
-        document.querySelector('div[role="dialog"] [aria-label="關閉"]') ||
-        document.querySelector('div[role="dialog"] [aria-label="Close"]');
-      if (closeBtn) dispatchClick(closeBtn);
-      await sleep(1000);
-    } else {
-      console.log('[FB] 私訊對話框未出現。');
-    }
-
-    return true;
+  processComment(block, product, batch, result) {
+    return processBatchComment(block, product, batch, result, 'facebook');
   }
 
 };
@@ -364,12 +500,18 @@ const IG = {
 
   findCommentBlocks() {
     // IG Business Suite 的按鈕文字：「Send message」= 可私訊，「Message」= 已私訊（跳過）
-    const sendBtns = Array.from(document.querySelectorAll(
-      'div[role="button"], span, a, button, div'
-    )).filter(el => {
+    const actionSelector = '[role="button"], button, a';
+    const isSendAction = el => {
       const text = el.innerText ? el.innerText.trim().toLowerCase() : '';
       return text === '發送訊息' || text === 'send message';
-    });
+    };
+    const matches = Array.from(document.querySelectorAll(`${actionSelector}, span, div`)).filter(isSendAction);
+    const sendBtns = new Set(matches.flatMap(el => {
+      const action = el.closest(actionSelector);
+      if (action) return [action];
+      const nestedActions = Array.from(el.querySelectorAll(actionSelector)).filter(isSendAction);
+      return nestedActions.length ? nestedActions : [el];
+    }));
 
     const blocks = [];
     const processed = new Set();
@@ -416,207 +558,8 @@ const IG = {
     return name;
   },
 
-  async processComment(block, product) {
-    console.log('[IG] Processing comment...');
-    const settings = getSettings();
-
-    const replyBtn = findButtonByText(block, ['回覆', 'Reply']);
-    const sendMsgBtn = findButtonByText(block, ['發送訊息', 'Send message']);
-
-    console.log('[IG] replyBtn:', replyBtn, '| sendMsgBtn:', sendMsgBtn);
-
-    if (!replyBtn || !sendMsgBtn) {
-      console.log('[IG] 找不到回覆或發送訊息按鈕，跳過此留言。');
-      return false;
-    }
-
-    // Step 1: 公開留言回覆
-
-    // ★ 必須在點擊前記錄（IG 的回覆框是既有元素被 focus，不是新增節點）
-    const editablesBeforeReply = new Set([
-      ...document.querySelectorAll('[contenteditable="true"]'),
-      ...document.querySelectorAll('textarea'),
-      ...document.querySelectorAll('input[type="text"]')
-    ]);
-
-    dispatchClick(replyBtn);
-    await sleep(2500);
-
-    // 優先用 activeElement：點擊回覆後瀏覽器會 focus 到回覆框
-    let commentInput = null;
-    for (let i = 0; i < 10; i++) {
-      const active = document.activeElement;
-      if (active && (
-        active.getAttribute('contenteditable') === 'true' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'INPUT'
-      )) {
-        commentInput = active;
-        console.log('[IG] 透過 activeElement 找到回覆框:', active.tagName, active.placeholder || '');
-        break;
-      }
-      // 備用：找新出現的輸入元素
-      const newEl = [...document.querySelectorAll('[contenteditable="true"]'), ...document.querySelectorAll('textarea')]
-        .find(el => !editablesBeforeReply.has(el));
-      if (newEl) {
-        commentInput = newEl;
-        console.log('[IG] 找到新出現的回覆框:', newEl.tagName);
-        break;
-      }
-      await sleep(400);
-    }
-
-    if (commentInput) {
-      console.log('[IG] 開始輸入公開回覆...');
-      const msg = getRandomItem(settings.publicReplies);
-      commentInput.focus();
-      await sleep(200);
-      await simulateTyping(commentInput, msg);
-      await sleep(1000);
-      // IG 回覆框按 Enter 直接送出
-      const enterEventParams = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-      commentInput.dispatchEvent(new KeyboardEvent('keydown', enterEventParams));
-      commentInput.dispatchEvent(new KeyboardEvent('keypress', enterEventParams));
-      commentInput.dispatchEvent(new KeyboardEvent('keyup', enterEventParams));
-      await sleep(3000);
-    } else {
-      console.log('[IG] 回覆輸入框未出現，跳過公開回覆。');
-    }
-
-    // Step 2: 私訊商品連結
-    const freshSendMsgBtn = findButtonByText(block, ['發送訊息', 'Send message']);
-    if (!freshSendMsgBtn) {
-      console.log('[IG] 重新找不到發送訊息按鈕。');
-      return !!commentInput;
-    }
-
-    // ★ 在點擊前記錄現有輸入元素
-    const editablesBeforeDm = new Set([
-      ...document.querySelectorAll('[contenteditable="true"]'),
-      ...document.querySelectorAll('textarea'),
-      ...document.querySelectorAll('input[type="text"]')
-    ]);
-
-    dispatchClick(freshSendMsgBtn);
-    await sleep(3500);
-
-    // 優先用 activeElement，其次找新出現的元素
-    let dmInput = null;
-    for (let i = 0; i < 12; i++) {
-      const active = document.activeElement;
-      if (active && (
-        active.getAttribute('contenteditable') === 'true' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'INPUT'
-      ) && !editablesBeforeDm.has(active)) {
-        dmInput = active;
-        console.log('[IG] 透過 activeElement 找到私訊框:', active.tagName);
-        break;
-      }
-      const newEl = [
-        ...document.querySelectorAll('[contenteditable="true"]'),
-        ...document.querySelectorAll('textarea'),
-        ...document.querySelectorAll('input[type="text"]')
-      ].find(el => !editablesBeforeDm.has(el));
-      if (newEl) {
-        dmInput = newEl;
-        console.log('[IG] 找到新出現的私訊框:', newEl.tagName);
-        break;
-      }
-      await sleep(400);
-    }
-
-    if (dmInput) {
-      console.log('[IG] 開始輸入私訊...');
-      const prefix = getRandomItem(settings.dmPrefixes);
-      const suffix = getRandomItem(settings.dmSuffixes || []);
-      const link = product ? product.link : '';
-      const fullMsg = buildDmMessage(prefix, link, suffix);
-
-      const maxRetries = typeof settings.igDmRetries === 'number' ? settings.igDmRetries : 3;
-      const waitTimeSecs = typeof settings.igDmWaitTime === 'number' ? settings.igDmWaitTime : 10;
-      let dmSentSuccessfully = false;
-
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        if (attempt > 0) {
-          console.log(`[IG] 尚未看到私訊出現，進行第 ${attempt} 次重試...`);
-        }
-
-        dmInput.focus();
-        await sleep(200);
-
-        if (dmInput.tagName === 'TEXTAREA' || dmInput.tagName === 'INPUT') {
-          const proto = dmInput.tagName === 'TEXTAREA'
-            ? window.HTMLTextAreaElement.prototype
-            : window.HTMLInputElement.prototype;
-          const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-          if (nativeSetter) {
-            nativeSetter.call(dmInput, fullMsg);
-          } else {
-            dmInput.value = fullMsg;
-          }
-          dmInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-          dmInput.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-        } else {
-          const dt = new DataTransfer();
-          dt.setData('text/plain', fullMsg);
-          dmInput.dispatchEvent(new ClipboardEvent('paste', {
-            clipboardData: dt,
-            bubbles: true,
-            cancelable: true
-          }));
-        }
-        await sleep(800);
-
-        const dmContainer = dmInput.closest('[role="dialog"], [role="complementary"], main') || document;
-        const sendBtn = findButtonByText(dmContainer, ['傳送', 'Send', '發送']);
-        if (sendBtn) {
-          dispatchClick(sendBtn.closest('[role="button"], button') || sendBtn);
-        } else {
-          const enterEventParams = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-          dmInput.dispatchEvent(new KeyboardEvent('keydown', enterEventParams));
-          dmInput.dispatchEvent(new KeyboardEvent('keypress', enterEventParams));
-          dmInput.dispatchEvent(new KeyboardEvent('keyup', enterEventParams));
-        }
-
-        // 開始等待與檢查畫面
-        let found = false;
-        for (let wait = 0; wait < waitTimeSecs; wait++) {
-          await sleep(1000);
-          const checkContainer = dmInput.closest('[role="dialog"], [role="complementary"], main') || document;
-          const textContent = checkContainer.innerText || checkContainer.textContent || '';
-          
-          if ((prefix && textContent.includes(prefix)) || (link && textContent.includes(link))) {
-            found = true;
-            break;
-          }
-        }
-
-        if (found) {
-          console.log('[IG] 成功確認私訊已出現在畫面中！');
-          dmSentSuccessfully = true;
-          break;
-        }
-      }
-
-      if (!dmSentSuccessfully) {
-        console.log(`[IG] 經過 ${maxRetries} 次重試仍未確認到私訊內容。這可能是因為載入過慢或對方設定限制。`);
-      }
-
-      await sleep(1500);
-
-      // 關閉對話框（若有）
-      const closeBtn =
-        document.querySelector('svg[aria-label="關閉"]')?.closest('div[role="button"]') ||
-        document.querySelector('[aria-label="關閉"]') ||
-        document.querySelector('[aria-label="Close"]');
-      if (closeBtn) dispatchClick(closeBtn);
-      await sleep(1000);
-    } else {
-      console.log('[IG] 私訊對話框未出現。');
-    }
-
-    return true;
+  processComment(block, product, batch, result) {
+    return processBatchComment(block, product, batch, result, 'instagram');
   }
 
 };
@@ -751,36 +694,26 @@ function showBindingDialog(anchorElement) {
   document.body.appendChild(dialog);
 
   dialog.querySelector('#binding-cancel').addEventListener('click', () => dialog.remove());
-  dialog.querySelector('#binding-save').addEventListener('click', () => {
+  const saveButton = dialog.querySelector('#binding-save');
+  saveButton.addEventListener('click', async () => {
+    if (saveButton.disabled) return;
     if (getPostKey() !== postTitle) {
       alert('貼文已切換，請重新開啟綁定視窗。');
       dialog.remove();
       return;
     }
     const selectedId = dialog.querySelector('#binding-select').value;
-    if (selectedId) {
-      setBoundProductId(postTitle, selectedId);
-      chrome.storage.sync.set({ postProductMapping }, () => {
-        if (chrome.runtime.lastError) {
-          alert('儲存失敗：' + chrome.runtime.lastError.message);
-          return;
-        }
-        alert('綁定成功！下次開啟自動回覆時將自動選擇此商品。');
-        dialog.remove();
-        updateBindButtonStates();
-      });
-    } else {
-      deleteBoundProductId(postTitle);
-      chrome.storage.sync.set({ postProductMapping }, () => {
-        if (chrome.runtime.lastError) {
-          alert('儲存失敗：' + chrome.runtime.lastError.message);
-          return;
-        }
-        alert('已解除綁定。');
-        dialog.remove();
-        updateBindButtonStates();
-      });
+    saveButton.disabled = true;
+    try {
+      await saveBoundProductId(postTitle, selectedId || null);
+    } catch (error) {
+      alert('儲存失敗：' + error.message);
+      return;
+    } finally {
+      saveButton.disabled = false;
     }
+    alert(selectedId ? '綁定成功！下次開啟自動回覆時將自動選擇此商品。' : '已解除綁定。');
+    dialog.remove();
   });
 
   setTimeout(() => {
@@ -817,8 +750,8 @@ function injectFloatingButton() {
     e.preventDefault();
     e.stopPropagation();
 
-    if (isRunning) {
-      isRunning = false;
+    if (activeBatch) {
+      activeBatch.stopReason ||= 'operator';
       btn.innerHTML = '🛑 停止中...';
       btn.style.backgroundColor = '#EF4444';
       return;
@@ -932,27 +865,34 @@ function updateDropdownContent(dropdown, mainBtn) {
     }
     dropdown.style.display = 'none';
     mainBtn.setAttribute('aria-expanded', 'false');
-    startAutomation(platform, mainBtn);
+    startAutomation(platform);
   });
 }
 
 // ============================================================
 // MAIN AUTOMATION CONTROLLER
 // ============================================================
-async function startAutomation(platform, mainBtn) {
-  if (isRunning || !selectedProduct) return;
+function canContinueBatch(batch) {
+  if (activeBatch !== batch || batch.stopReason) return false;
+  if (window.location.href === batch.url) return true;
+  batch.stopReason = 'navigation';
+  return false;
+}
+
+async function startAutomation(platform) {
+  if (activeBatch || !selectedProduct) return;
   // Keep the explicitly selected product fixed throughout this batch.
   const product = { ...selectedProduct };
-  isRunning = true;
+  const batch = { url: window.location.href, stopReason: null };
+  activeBatch = batch;
 
   const settings = getSettings();
   const module = platform === 'instagram' ? IG : FB;
 
   const btns = document.querySelectorAll('.meta-auto-reply-btn');
   btns.forEach(btn => {
-    btn.innerHTML = '⏳ 執行中...';
+    btn.innerHTML = '⏳ 執行中 · 停止';
     btn.style.backgroundColor = '#9CA3AF';
-    btn.style.cursor = 'not-allowed';
   });
 
   try {
@@ -963,15 +903,23 @@ async function startAutomation(platform, mainBtn) {
       return;
     }
 
-    let processedCount = 0;
+    const outcomes = [];
     for (let i = 0; i < commentBlocks.length; i++) {
-      if (!isRunning) break;
+      if (!canContinueBatch(batch)) break;
+      btns.forEach(btn => btn.innerHTML = '⏳ 執行中 · 停止');
 
-      const success = await module.processComment(commentBlocks[i], product);
-      if (success) processedCount++;
+      const block = commentBlocks[i];
+      const name = module.extractUserName(block);
+      const outcome = { name, index: i + 1, publicReply: false, dm: 'not-sent' };
+      outcomes.push(outcome);
+      try {
+        await module.processComment(block, product, batch, outcome);
+      } catch (error) {
+        console.error('[META AutoReply] Automation error:', error);
+        batch.stopReason ||= 'error';
+      }
 
-      if (i < commentBlocks.length - 1 && isRunning) {
-        const platform = getPlatform();
+      if (i < commentBlocks.length - 1 && canContinueBatch(batch)) {
         const minDelay = platform === 'instagram' ? 
                          (settings.igMinDelay || 30) : 
                          (settings.fbMinDelay || settings.minDelay || 15);
@@ -983,19 +931,42 @@ async function startAutomation(platform, mainBtn) {
           Math.random() * (maxDelay - minDelay + 1) + minDelay
         );
         for (let j = delay; j > 0; j--) {
-          if (!isRunning) break;
-          btns.forEach(b => b.innerHTML = `⏳ 冷卻中 (${j}s)...`);
+          if (!canContinueBatch(batch)) break;
+          btns.forEach(b => b.innerHTML = `⏳ 冷卻中 (${j}s) · 停止`);
           await sleep(1000);
         }
       }
     }
 
-    alert(`執行完畢！共處理了 ${processedCount} 則留言。`);
+    canContinueBatch(batch);
+    const title = {
+      operator: '已停止批次',
+      navigation: '頁面已切換，批次已停止',
+      error: '執行時發生錯誤，批次已停止'
+    }[batch.stopReason] || '批次執行完畢';
+    const publicReplies = outcomes.filter(outcome => outcome.publicReply).length;
+    const confirmedDms = outcomes.filter(outcome => outcome.dm === 'confirmed').length;
+    const unconfirmedDms = outcomes.filter(outcome => outcome.dm === 'unconfirmed').length;
+    const unsentDms = outcomes.length - confirmedDms - unconfirmedDms;
+    const pending = outcomes
+      .filter(outcome => outcome.dm !== 'confirmed')
+      .map(outcome => {
+        const status = outcome.dm === 'unconfirmed' ? '待核對' : '未送出';
+        return `${outcome.index}. ${outcome.name}（${status}）`;
+      });
+    const summary = [
+      title,
+      `公開回覆已提交 ${publicReplies} 則`,
+      `私訊畫面已確認 ${confirmedDms} 則、待核對 ${unconfirmedDms} 則、未送出 ${unsentDms} 則`,
+      `未開始處理 ${commentBlocks.length - outcomes.length} 則`,
+      ...pending
+    ];
+    alert(summary.join('\n'));
   } catch (error) {
     console.error('[META AutoReply] Automation error:', error);
     alert('執行過程中發生錯誤：' + error.message);
   } finally {
-    isRunning = false;
+    activeBatch = null;
     btns.forEach(btn => {
       btn.innerHTML = '🤖 自動回覆';
       btn.style.backgroundColor = '#4F46E5';
@@ -1011,10 +982,12 @@ function init() {
   const platform = getPlatform();
   console.log(`[META AutoReply] Platform detected: [${platform}]`);
 
+  const initialMapping = postProductMapping;
   chrome.storage.sync.get(['settings', 'products', 'postProductMapping', 'showFloatingButton'], (result) => {
+    if (!result) return;
     if (result.settings) currentSettings = result.settings;
     if (result.products) currentProducts = result.products;
-    if (result.postProductMapping) postProductMapping = result.postProductMapping;
+    if (postProductMapping === initialMapping) applyPostProductMapping(result.postProductMapping);
     showFloatingButton = result.showFloatingButton !== false;
     applyFloatingButtonVisibility();
   });
@@ -1024,8 +997,7 @@ function init() {
       if (changes.settings) currentSettings = changes.settings.newValue;
       if (changes.products) currentProducts = changes.products.newValue;
       if (changes.postProductMapping) {
-        postProductMapping = changes.postProductMapping.newValue;
-        updateBindButtonStates();
+        applyPostProductMapping(changes.postProductMapping.newValue);
       }
       if (changes.showFloatingButton) {
         showFloatingButton = changes.showFloatingButton.newValue !== false;

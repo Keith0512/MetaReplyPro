@@ -144,6 +144,17 @@ try {
     if (file === 'trusted-update-key.pem') source = trustedPemPath;
     cpSync(source, join(packageRoot, 'updater', file));
   }
+  // Keep pinned hosts on filenames that legacy installers never overwrite.
+  for (const file of [
+    'update.ps1',
+    'update-host.ps1',
+    'update-host.bat',
+    'update-macos.sh',
+    'native-host-macos.sh',
+  ]) {
+    const pinnedFile = file.replace('.', '-pinned.');
+    cpSync(join(repoRoot, 'updater', file), join(packageRoot, 'updater', pinnedFile));
+  }
 
   writeFileSync(
     join(packageRoot, 'release-info.json'),
