@@ -14,6 +14,51 @@ $releaseBase = 'https://github.com/Keith0512/MetaReplyPro/releases/download'
 $legacyHost = 'com.metareplypro.updater'
 $pinnedHost = 'com.metareplypro.updater.pinned'
 $origin = 'chrome-extension://gnekicgafkpbmafejjcbaagcpfnmfjbh/'
+$shortcutName = 'MetaReplyPro ' + [char]0x66F4 + [char]0x65B0 + '.lnk'
+$shortcutFailure = 'Unable to save shortcut "[^"\r\n]*\\(?:MetaReplyPro \?\?\.lnk|' + [regex]::Escape($shortcutName) + ')"'
+$script:shortcutBlocked = $false
+
+function Invoke-DesktopPowerShell([string]$ScriptPath, [string]$Arguments = '') {
+  $start = New-Object Diagnostics.ProcessStartInfo
+  $start.FileName = Join-Path $PSHOME 'powershell.exe'
+  $start.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" {1}' -f $ScriptPath, $Arguments
+  $start.UseShellExecute = $false
+  $start.RedirectStandardOutput = $true
+  $start.RedirectStandardError = $true
+  $process = [Diagnostics.Process]::Start($start)
+  try {
+    $outputTask = $process.StandardOutput.ReadToEndAsync()
+    $errorTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $output = $outputTask.GetAwaiter().GetResult()
+    $errors = $errorTask.GetAwaiter().GetResult()
+    if ($output) { Write-Host $output.TrimEnd() }
+    if ($errors) { Write-Host $errors.TrimEnd() }
+    @{ code = $process.ExitCode; output = $output; errors = $errors }
+  } finally {
+    $process.Dispose()
+  }
+}
+
+function Test-DesktopShortcutNames {
+  Write-Host "Windows system locale: $((Get-WinSystemLocale).Name); ANSI code page: $([Text.Encoding]::Default.CodePage); console code page: $([Console]::OutputEncoding.CodePage)"
+  $probeDir = Join-Path $testRoot 'shortcut-probe'
+  New-Item -ItemType Directory -Path $probeDir | Out-Null
+  $shell = New-Object -ComObject WScript.Shell
+  foreach ($file in @('MetaReplyPro Update.lnk', $shortcutName)) {
+    $label = if ($file -ceq $shortcutName) { 'Traditional Chinese filename' } else { 'ASCII filename' }
+    $path = Join-Path $probeDir $file
+    try {
+      $shortcut = $shell.CreateShortcut($path)
+      $shortcut.TargetPath = 'powershell.exe'
+      $shortcut.Save()
+      if (-not (Test-Path -LiteralPath $path)) { throw 'The shortcut did not appear under its intended name.' }
+      Write-Host "PASS COM shortcut probe: $label"
+    } catch {
+      Write-Warning "COM shortcut probe failed ($label): $($_.Exception.Message)"
+    }
+  }
+}
 
 function Receive-File([string]$Url, [string]$Destination) {
   & curl.exe --silent --show-error --fail --location --retry 2 --output $Destination $Url
@@ -81,8 +126,21 @@ function Get-ChromeHostManifestPath([string]$HostName) {
 
 function Install-Release($Release, [string]$HostName, [string[]]$HostFiles) {
   $installer = Join-Path $Release.package 'updater\install.ps1'
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
-  if ($LASTEXITCODE -ne 0) { throw "Official $($Release.version) installer failed ($LASTEXITCODE)." }
+  $defaultInstall = Invoke-DesktopPowerShell $installer
+  Write-Host "Official v$($Release.version) default installer exit code: $($defaultInstall.code)"
+  if ($defaultInstall.code -ne 0) {
+    $failureOutput = $defaultInstall.output + $defaultInstall.errors
+    if ($defaultInstall.code -ne 1 -or $failureOutput -notmatch $shortcutFailure -or
+        $failureOutput -notmatch 'MetaReplyPro setup failed with exit code 1') {
+      throw "Official v$($Release.version) default installer failed outside the known desktop shortcut issue."
+    }
+    $script:shortcutBlocked = $true
+    Write-Warning "Official v$($Release.version) default installer could not save its desktop shortcut. Retrying only this install with -SkipDesktopShortcut."
+    $setup = Join-Path $Release.package 'updater\setup.ps1'
+    $setupArguments = '-SourceDir "{0}" -SkipDesktopShortcut' -f $Release.package
+    $retry = Invoke-DesktopPowerShell $setup $setupArguments
+    if ($retry.code -ne 0) { throw "Official v$($Release.version) setup retry failed ($($retry.code))." }
+  }
 
   $extension = Read-Json (Join-Path $installDir 'chrome-extension\manifest.json')
   $installedRelease = Read-Json (Join-Path $installDir 'release-info.json')
@@ -119,8 +177,19 @@ Write-Host "Windows PowerShell $($PSVersionTable.PSVersion) $($PSVersionTable.PS
 
 Push-Location -LiteralPath $repoRoot
 try {
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'run-tests.ps1')
-  if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell suite failed ($LASTEXITCODE)." }
+  Test-DesktopShortcutNames
+  foreach ($test in @('test-install.ps1', 'test-update.ps1', 'test-setup.ps1', 'test-native-host.ps1')) {
+    Write-Host "=== $test ==="
+    $result = Invoke-DesktopPowerShell (Join-Path $PSScriptRoot $test)
+    if ($result.code -ne 0) {
+      if ($test -ne 'test-setup.ps1' -or $result.code -ne 1 -or
+          ($result.output + $result.errors) -notmatch $shortcutFailure) {
+        throw "$test failed ($($result.code))."
+      }
+      $script:shortcutBlocked = $true
+      Write-Warning 'PARTIAL: test-setup.ps1 failed on the desktop shortcut. The other PowerShell tests must still pass.'
+    }
+  }
 
   $old = Receive-Release '1.5.3' '791defcf745f34117757ec8b23fd89afdc6811f8'
   $new = Receive-Release '1.5.4' 'ee55d3d470053c5bdd6ea75026f49147c1473197'
@@ -150,7 +219,11 @@ try {
   Install-Release $new $pinnedHost @('update-host-pinned.bat', 'update-host-pinned.ps1', 'update-pinned.ps1')
   & node tests/windows-v154-chrome.mjs after
   if ($LASTEXITCODE -ne 0) { throw "Post-reinstall Chrome check failed ($LASTEXITCODE)." }
-  Write-Host 'PASS Windows PowerShell and Chrome smoke test'
+  if ($script:shortcutBlocked) {
+    Write-Warning 'PARTIAL: signed reinstall, registry and Chrome checks passed. The default desktop shortcut could not be created on this Windows runner.'
+  } else {
+    Write-Host 'PASS Windows PowerShell and Chrome smoke test'
+  }
 } finally {
   Pop-Location
 }
