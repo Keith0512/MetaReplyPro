@@ -182,10 +182,6 @@ try {
     Write-Host "=== $test ==="
     $result = Invoke-DesktopPowerShell (Join-Path $PSScriptRoot $test)
     if ($result.code -ne 0) {
-      if ($test -eq 'test-native-host.ps1') {
-        Write-Warning 'PARTIAL: test-native-host.ps1 failed. Continuing to test the actual signed host through Chrome.'
-        continue
-      }
       if ($test -ne 'test-setup.ps1' -or $result.code -ne 1 -or
           ($result.output + $result.errors) -notmatch $shortcutFailure) {
         throw "$test failed ($($result.code))."
