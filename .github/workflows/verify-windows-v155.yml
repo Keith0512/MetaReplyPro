@@ -1,0 +1,30 @@
+name: Verify the v1.5.5 Windows installer
+
+on:
+  push:
+    branches:
+      - codex/verify-windows-v155
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Verify the v1.5.4 reinstall, desktop shortcut, and Chrome bridge
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      METAREPLY_TEST_MODE: staging
+      METAREPLY_TEST_CANDIDATE_COMMIT: d3ff272b7936540197d45819df341d2ceab7535e
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Test the installer with Windows PowerShell 5.1 and Chrome
+        shell: powershell
+        run: .\updater\tests\windows-v155-smoke.ps1
