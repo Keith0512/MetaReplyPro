@@ -93,14 +93,18 @@ try {
   }
 
   if (-not $SkipDesktopShortcut) {
-    $shortcutPath = Join-Path $DesktopDir 'MetaReplyPro 更新.lnk'
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = 'powershell.exe'
-    $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDir\update.ps1`" -Interactive"
-    $shortcut.WorkingDirectory = $InstallDir
-    $shortcut.IconLocation = 'powershell.exe,0'
-    $shortcut.Save()
+    try {
+      $shortcutPath = Join-Path $DesktopDir 'MetaReplyPro Update.lnk'
+      $shell = New-Object -ComObject WScript.Shell
+      $shortcut = $shell.CreateShortcut($shortcutPath)
+      $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+      $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDir\update.ps1`" -Interactive"
+      $shortcut.WorkingDirectory = $InstallDir
+      $shortcut.IconLocation = "$($shortcut.TargetPath),0"
+      $shortcut.Save()
+    } catch {
+      Write-Warning "無法建立桌面更新捷徑。仍可從擴充功能設定頁更新。$($_.Exception.Message)"
+    }
   }
 
   if ($SkipScheduledTaskManagement) {

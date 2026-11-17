@@ -62,15 +62,25 @@ try {
   Assert (@($hostManifest.allowed_origins) -contains 'chrome-extension://gnekicgafkpbmafejjcbaagcpfnmfjbh/') 'host 只允許固定擴充功能 ID'
 
   if ($isWindowsPlatform) {
-    $shortcutPath = Join-Path $desktopDir 'MetaReplyPro 更新.lnk'
-    Assert (Test-Path $shortcutPath) '建立桌面安全更新捷徑'
+    $shortcutPath = Join-Path $desktopDir 'MetaReplyPro Update.lnk'
+    Assert (Test-Path -LiteralPath $shortcutPath -PathType Leaf) '建立桌面安全更新捷徑'
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
-    Assert ($shortcut.Arguments -match 'update\.ps1' -and $shortcut.Arguments -match '-Interactive') '捷徑以互動模式執行安全更新器'
+    $expectedArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Interactive' -f (Join-Path $installDir 'update.ps1')
+    Assert ((Split-Path -Leaf $shortcut.TargetPath) -eq 'powershell.exe' -and
+      (Test-Path -LiteralPath $shortcut.TargetPath -PathType Leaf) -and
+      $shortcut.Arguments -eq $expectedArguments -and $shortcut.WorkingDirectory -eq $installDir) '捷徑以互動模式執行已安裝的安全更新器'
   }
 
   & $setupScript @setupArguments
   Assert ($LASTEXITCODE -eq 0) '重複執行可信 release 安裝不報錯'
+
+  if ($isWindowsPlatform) {
+    $missingDesktopArguments = $setupArguments.Clone()
+    $missingDesktopArguments.DesktopDir = Join-Path $root 'missing-desktop'
+    & $setupScript @missingDesktopArguments
+    Assert ($LASTEXITCODE -eq 0) '無法儲存桌面捷徑時仍可完成安裝'
+  }
 
   $invalidSource = Join-Path $root 'invalid'
   New-Item -ItemType Directory -Path $invalidSource | Out-Null

@@ -30,7 +30,14 @@ function Invoke-Host([string]$Directory, [byte[]]$Frame) {
   $start.UseShellExecute = $false
   $start.RedirectStandardInput = $true
   $start.RedirectStandardOutput = $true
-  $process = [Diagnostics.Process]::Start($start)
+  # .NET Framework's redirect writer may emit a BOM before the binary frame.
+  $originalEncoding = [Console]::InputEncoding
+  try {
+    [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+    $process = [Diagnostics.Process]::Start($start)
+  } finally {
+    [Console]::InputEncoding = $originalEncoding
+  }
   $output = New-Object IO.MemoryStream
   try {
     $readOutput = $process.StandardOutput.BaseStream.CopyToAsync($output)

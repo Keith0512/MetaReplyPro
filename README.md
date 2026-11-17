@@ -38,7 +38,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\updater\install.ps1
 
 4. 到 `chrome://extensions` 開啟「開發人員模式」，選擇安裝程式顯示並複製到剪貼簿的 `chrome-extension` 資料夾。
 
-安裝器預設不建立自動排程。設定頁的「立即更新」及桌面「MetaReplyPro 更新」捷徑都會先驗證簽章。
+安裝器預設不建立自動排程。設定頁的「立即更新」及桌面「MetaReplyPro Update」捷徑都會先驗證簽章。
 
 ## macOS 安裝
 
