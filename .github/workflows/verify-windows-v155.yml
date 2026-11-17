@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 20
     env:
-      METAREPLY_TEST_MODE: staging
+      METAREPLY_TEST_MODE: published
       METAREPLY_TEST_CANDIDATE_COMMIT: d3ff272b7936540197d45819df341d2ceab7535e
 
     steps:
